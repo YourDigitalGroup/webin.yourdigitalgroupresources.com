@@ -1,0 +1,34 @@
+name: Deploy to io subdomain
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Inject build timestamp
+        run: |
+          TIMESTAMP=$(date +%s)
+          sed -i "s|</head>|<meta name=\"build-ts\" content=\"$TIMESTAMP\">\n</head>|" index.html
+
+      - name: Deploy to io.yourdigitalgroupresources.com
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./
+          server-dir: ./
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            README.md
+            .gitignore
