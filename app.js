@@ -27,6 +27,12 @@ async function logActivity(intakeId, action) {
 (async function boot() {
   const { data } = await db.auth.getSession();
   session = data.session;
+  if (!session && !CONFIG.REQUIRE_LOGIN) {
+    const { data: anon } = await db.auth.signInAnonymously();
+    session = anon?.session ?? null;
+    // If this fails, anonymous sign-ins are off in the dashboard —
+    // the login screen appears as the fallback.
+  }
   if (session) await loadProfile();
   db.auth.onAuthStateChange(async (_e, s) => {
     session = s;
@@ -56,13 +62,16 @@ function shell(inner) {
       <div class="topbar no-print">
         <a href="#/" style="text-decoration:none;color:inherit"><span class="wordmark">44<span>i</span> · Website intakes</span></a>
         <div style="display:flex;align-items:center;gap:12px">
-          <span class="who">${h(profile?.full_name || session.user.email)}${profile?.role ? " · " + h(profile.role) : ""}</span>
-          <button class="btn small" id="signout">Sign out</button>
+          ${session.user.is_anonymous
+            ? `<span class="who">44i team</span>`
+            : `<span class="who">${h(profile?.full_name || session.user.email)}${profile?.role ? " · " + h(profile.role) : ""}</span>
+               <button class="btn small" id="signout">Sign out</button>`}
         </div>
       </div>
       <div id="view">${inner}</div>
     </div>`;
-  $("#signout").onclick = async () => { await db.auth.signOut(); location.hash = "#/"; };
+  const so = $("#signout");
+  if (so) so.onclick = async () => { await db.auth.signOut(); location.hash = "#/"; };
 }
 
 /* ================= LOGIN ================= */
