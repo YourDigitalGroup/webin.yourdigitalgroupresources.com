@@ -261,10 +261,7 @@ async function viewForm(id) {
     if (intake.status === "designer_ready" && changed.size) {
       const summary = [...changed].slice(0, 4).join(", ");
       logActivity(id, `Updated: ${summary}`);
-      db.functions.invoke("handoff", {
-        body: { intake_id: id, mode: "update", change_summary: summary },
-        headers: { Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
-      });
+      db.functions.invoke("handoff", { body: { intake_id: id, mode: "update", change_summary: summary } });
     }
     changed.clear();
     $("#savestate").textContent = "All changes saved";
@@ -310,10 +307,7 @@ async function viewForm(id) {
       clearTimeout(saveTimer); await save();
       await db.from("intakes").update({ status: "designer_ready" }).eq("id", id);
       await logActivity(id, "Submitted for designer handoff");
-      const { error } = await db.functions.invoke("handoff", {
-        body: { intake_id: id, mode: "handoff" },
-        headers: { Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
-      });
+      const { error } = await db.functions.invoke("handoff", { body: { intake_id: id, mode: "handoff" } });
       if (error) {
         // Pull the real reason out of the function's response so the alert
         // says WHAT failed, not just that something did.
