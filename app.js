@@ -476,14 +476,16 @@ async function viewDetail(id) {
   const sectionHtml = (sec) => {
     const fields = sec.fields.filter((f) => (!f.cond || f.cond(d.package)) && String(d[f.id] ?? "").trim());
     const faqs = sec.faqs ? (d.faqs || []).filter((f) => f.q || f.a) : [];
-    const checks = sec.checklist ? sec.checklist.filter((i) => d["content_" + i]) : [];
+    const checks = sec.checklist
+      ? CONTENT_ITEMS.filter((c) => (!c.cond || c.cond(d.package)) && d["content_" + c.label])
+      : [];
     const hasFiles = sec.uploads && (files || []).length;
     if (!fields.length && !faqs.length && !checks.length && !hasFiles) return "";
     return `<div class="card"><p class="secnum">SECTION ${sec.num}</p><h2>${h(sec.title)}</h2>
       <div style="margin-top:10px">
       ${hasFiles ? `<p style="font-size:13.5px"><strong>Files on record:</strong> ${
         files.map((f) => `${h(f.filename)} (${h(f.category)})`).join(" · ")}</p>` : ""}
-      ${checks.map((i) => `<p style="font-size:13.5px;margin:3px 0">${h(i)}: <strong>${h(d["content_" + i])}</strong></p>`).join("")}
+      ${checks.map((c) => `<p style="font-size:13.5px;margin:3px 0">${h(c.label)}: <strong>${h(d["content_" + c.label])}</strong></p>`).join("")}
       ${faqs.map((f, i) => `<p style="font-size:13.5px;margin:6px 0"><strong>${i + 1}. ${h(f.q)}</strong><br />${h(f.a)}</p>`).join("")}
       ${fields.map((f) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">${h(f.label)}</span><br />
         <span style="white-space:pre-wrap">${h(d[f.id])}</span></p>`).join("")}
