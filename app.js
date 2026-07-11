@@ -219,6 +219,12 @@ async function viewForm(id) {
         </select>
       </div>
     </div>
+    <div class="card no-print">
+      <p class="secnum">AI COPY ASSISTANT</p>
+      <h2>Draft suggested copy</h2>
+      <p class="subhead">For brand-new clients: drafts the discovery sections (03–06) from the company name and their current website. Only fills empty fields — nothing you've typed is touched — and tags assumed facts with [confirm on call].</p>
+      <button class="btn small" id="copygen" type="button">Draft suggested copy</button>
+    </div>
     ${SECTIONS.map((sec) => `
       <div class="card ${sec.sensitive ? "sensitive" : ""}">
         <p class="secnum">SECTION ${sec.num}</p><h2>${h(sec.title)}</h2><p class="subhead">${h(sec.sub)}</p>
@@ -337,6 +343,26 @@ async function viewForm(id) {
     if ($("#uploader")) renderUploader();  // client link carries the partner slug
   };
 
+  $("#copygen").onclick = async () => {
+    const b = $("#copygen");
+    b.disabled = true; b.textContent = "Drafting copy…";
+    data.copy_generate = true;
+    changed.add("AI copy draft");
+    clearTimeout(saveTimer); await save();
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
+      if (row && row.data.copy_generate !== true) {
+        viewForm(id);  // re-render the whole form with the drafted fields
+        return;
+      }
+    }
+    data.copy_generate = false;          // unstick so retry works
+    clearTimeout(saveTimer); await save();
+    b.disabled = false; b.textContent = "Draft suggested copy";
+    alert("Copy drafting is taking too long — check that the ANTHROPIC_API_KEY secret is set and the latest function is deployed, then try again.");
+  };
+
   /* --- input wiring (delegated; DOM never re-rendered on keystroke) --- */
   const view = $("#view");
   view.addEventListener("input", (e) => {
@@ -396,6 +422,8 @@ async function viewForm(id) {
           return;
         }
       }
+      data.faq_generate = false;         // unstick so retry works
+      clearTimeout(saveTimer); await save();
       b.disabled = false; b.textContent = "Generate FAQs";
       alert("FAQ generation is taking too long — check that the ANTHROPIC_API_KEY secret is set, then try again.");
     };
