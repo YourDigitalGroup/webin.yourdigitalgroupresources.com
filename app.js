@@ -314,7 +314,18 @@ async function viewForm(id) {
         body: { intake_id: id, mode: "handoff" },
         headers: { Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
       });
-      if (error) alert("Saved and marked designer-ready, but the Trello card failed: " + error.message);
+      if (error) {
+        // Pull the real reason out of the function's response so the alert
+        // says WHAT failed, not just that something did.
+        let detail = error.message || "";
+        try {
+          if (error.context) {
+            const body = await error.context.text();
+            if (body) detail = `${error.context.status ?? ""} ${body}`.trim();
+          }
+        } catch (_) { /* fall back to error.message */ }
+        alert("Saved and marked designer-ready, but the Trello card failed:\n\n" + detail);
+      }
       location.hash = `#/intake/${id}`;
     };
   }
