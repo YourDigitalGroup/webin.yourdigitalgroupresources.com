@@ -51,6 +51,8 @@ async function loadProfile() {
 function route() {
   if (!session) return viewLogin();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  if (parts[0] === "upload" && parts[1]) return viewClientUpload(parts[1]);
+  if (parts[1] === "upload" && parts[2]) return viewClientUpload(parts[2]);
   if (parts[0] === "intake" && parts[1] && parts[2] === "edit") return viewForm(parts[1]);
   if (parts[0] === "intake" && parts[1]) return viewDetail(parts[1]);
   return viewList();
@@ -170,9 +172,10 @@ async function viewList() {
 
 /* ================= FORM ================= */
 async function viewForm(id) {
-  const [{ data: intake }, { data: partners }] = await Promise.all([
+  const [{ data: intake }, { data: partners }, { data: ams }] = await Promise.all([
     db.from("intakes").select("*, partners:partner_id(name)").eq("id", id).single(),
-    db.from("partners").select("id, name").eq("active", true).order("name"),
+    db.from("partners").select("id, name, slug").eq("active", true).order("name"),
+    db.from("team_members").select("name").eq("role", "am").eq("active", true).order("name"),
   ]);
   if (!intake) { location.hash = "#/"; return; }
   let partnerId = intake.partner_id || "";
@@ -185,7 +188,11 @@ async function viewForm(id) {
     const badges = `${f.req ? '<span class="badge req">REQ</span>' : ""}${f.rec ? '<span class="badge rec">REC</span>' : ""}${f.tag ? `<span class="badge cond">${h(f.tag)}</span>` : ""}`;
     const v = data[f.id] ?? "";
     let control;
-    if (f.type === "textarea") control = `<textarea data-fid="${f.id}">${h(v)}</textarea>`;
+    if (f.id === "am_name" && (ams || []).length) {
+      const names = [...new Set([...ams.map((x) => x.name), ...(v ? [v] : [])])];
+      control = `<select data-fid="am_name"><option value="">Choose…</option>${
+        names.map((n) => `<option ${v === n ? "selected" : ""}>${h(n)}</option>`).join("")}</select>`;
+    } else if (f.type === "textarea") control = `<textarea data-fid="${f.id}">${h(v)}</textarea>`;
     else if (f.type === "select") control = `<select data-fid="${f.id}"><option value="">Choose…</option>${
       f.options.map((o) => `<option value="${o.value}" ${v === o.value ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select>`;
     else if (f.type === "segmented") control = `<div class="seg" data-fid="${f.id}">${
@@ -327,6 +334,7 @@ async function viewForm(id) {
     partnerId = e.target.value;
     await db.from("intakes").update({ partner_id: partnerId || null }).eq("id", id);
     updateReqBar();
+    if ($("#uploader")) renderUploader();  // client link carries the partner slug
   };
 
   /* --- input wiring (delegated; DOM never re-rendered on keystroke) --- */
@@ -352,7 +360,15 @@ async function viewForm(id) {
   /* --- FAQs --- */
   function renderFaqs() {
     const faqs = data.faqs || [];
-    $("#faqzone").innerHTML = faqs.map((f, i) => `
+    $("#faqzone").innerHTML = `
+      <div class="faqcard" style="background:var(--field-tint);border-color:var(--line)">
+        <label style="font-size:13px;font-weight:600">AI FAQ copywriter</label>
+        <p class="hint" style="font-size:12px;color:var(--ink-soft);margin:2px 0 6px">
+          List topics or keywords (one per line) — the system writes SEO/AEO-tuned FAQs from them plus this intake's business details. Everything stays editable below.</p>
+        <div class="fld"><textarea rows="3" data-fid="faq_topics"
+          placeholder="emergency service&#10;financing options&#10;service area / how far do you travel">${h(data.faq_topics ?? "")}</textarea></div>
+        <button class="btn small" id="faqgen" type="button">Generate FAQs</button>
+      </div>` + faqs.map((f, i) => `
       <div class="faqcard">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:12px;font-weight:700;color:var(--ink-faint)">FAQ ${i + 1}</span>
@@ -364,6 +380,25 @@ async function viewForm(id) {
       </div>`).join("") + `
       <button class="btn small" id="faqadd" ${faqs.length >= 20 ? "disabled" : ""}>Add question (${faqs.length} of 20)</button>
       ${faqs.length < 10 ? `<span style="font-size:12px;color:var(--ink-faint);margin-left:10px">Aim for at least 10.</span>` : ""}`;
+    $("#faqgen").onclick = async () => {
+      const b = $("#faqgen");
+      b.disabled = true; b.textContent = "Writing FAQs…";
+      data.faq_generate = true;
+      changed.add("FAQ generation");
+      clearTimeout(saveTimer); await save();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
+        if (row && row.data.faq_generate !== true) {
+          data.faqs = row.data.faqs || [];
+          data.faq_generate = false;
+          renderFaqs();
+          return;
+        }
+      }
+      b.disabled = false; b.textContent = "Generate FAQs";
+      alert("FAQ generation is taking too long — check that the ANTHROPIC_API_KEY secret is set, then try again.");
+    };
     $("#faqadd").onclick = () => {
       data.faqs = [...(data.faqs || []), { q: "", a: "" }];
       changed.add("FAQs"); markDirty(); renderFaqs();
@@ -387,7 +422,19 @@ async function viewForm(id) {
     renderUploader();
   }
   function renderUploader() {
-    $("#uploader").innerHTML = ASSET_CATEGORIES.map((cat) => {
+    const slugP = (partners || []).find((x) => x.id === partnerId);
+    const clientLink = location.href.split("#")[0] + "#/" +
+      (slugP?.slug ? encodeURIComponent(slugP.slug) + "/" : "") + "upload/" + id;
+    $("#uploader").innerHTML = `
+      <div class="uprow" style="align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <span style="font-size:14px;font-weight:600">Client upload link</span>
+          <div class="hint" style="font-size:12px;color:var(--ink-faint)">Send this to the client — anything they upload lands in this section automatically (no account needed).</div>
+          <input type="text" readonly value="${h(clientLink)}" onclick="this.select()" style="margin-top:6px;font-size:12px" />
+        </div>
+        <button class="btn small" type="button" id="copylink">Copy link</button>
+        <button class="btn small" type="button" id="refreshfiles">Refresh</button>
+      </div>` + ASSET_CATEGORIES.map((cat) => {
       const catFiles = files.filter((f) => f.category === cat.id);
       return `<div class="uprow">
         <div style="flex:1;min-width:0">
@@ -404,6 +451,12 @@ async function viewForm(id) {
       <div class="dropzone" id="dropzone">Drop files here or click to browse · uploads are resumable</div>
       <input type="file" id="fileinput" multiple hidden />`;
 
+    $("#copylink").onclick = async () => {
+      try { await navigator.clipboard.writeText(clientLink); $("#copylink").textContent = "Copied!"; }
+      catch { $("#copylink").textContent = "Select + copy above"; }
+      setTimeout(() => { const b = $("#copylink"); if (b) b.textContent = "Copy link"; }, 2000);
+    };
+    $("#refreshfiles").onclick = loadFiles;
     $$("[data-upcat]").forEach((b) => b.onclick = () => { pickCat = b.dataset.upcat; $("#fileinput").click(); });
     $$("[data-filedel]").forEach((b) => b.onclick = async () => {
       await db.storage.from(CONFIG.BUCKET).remove([b.dataset.filepath]);
@@ -541,4 +594,106 @@ async function viewDetail(id) {
     URL.revokeObjectURL(url);
     b.disabled = false; b.textContent = `All assets (.zip, ${(totalBytes / 1e6).toFixed(0)} MB)`;
   };
+}
+
+
+/* ================= CLIENT UPLOAD PAGE ================= */
+/* Public page an AM sends to the client. Shows the PARTNER's name (white
+   label — never 44i). Files land in the same bucket + intake_files rows the
+   form reads, so they appear in Section 07 automatically. */
+async function viewClientUpload(id) {
+  const { data: intake } = await db.from("intakes")
+    .select("id, client_name, partners:partner_id(name)").eq("id", id).single();
+  if (!intake) {
+    app.innerHTML = `<div class="login-wrap"><div class="card login-card"><h1 style="font-size:18px">Link not found</h1><p class="subhead">This upload link isn't valid — please check with your account manager.</p></div></div>`;
+    return;
+  }
+  const agency = intake.partners?.name || "Your agency";
+
+  app.innerHTML = `
+    <div class="shell" style="max-width:640px">
+      <div style="margin:24px 0 14px">
+        <p class="secnum">${h(agency.toUpperCase())}</p>
+        <h1>Website assets — ${h(intake.client_name)}</h1>
+        <p class="subhead">Upload your logo, photos, and any brand files for your new website. Big files are fine — uploads resume automatically if your connection drops.</p>
+      </div>
+      <div class="card">
+        ${ASSET_CATEGORIES.map((cat) => `
+          <div class="uprow">
+            <div style="flex:1;min-width:0">
+              <span style="font-size:14px;font-weight:600">${h(cat.label)}</span>
+              ${cat.hint ? `<div class="hint" style="font-size:12px;color:var(--ink-faint)">${h(cat.hint)}</div>` : ""}
+              <div data-catfiles="${cat.id}"></div>
+            </div>
+            <button class="btn small" type="button" data-upcat="${cat.id}">Upload</button>
+          </div>`).join("")}
+        <div id="progresszone"></div>
+        <div class="dropzone" id="dropzone">Drop files here or click to browse</div>
+        <input type="file" id="fileinput" multiple hidden />
+        <p class="hint" style="font-size:12px;color:var(--ink-faint);margin:12px 0 0">
+          When you're done, just close this page — your team is notified automatically.</p>
+      </div>
+    </div>`;
+
+  let pickCat = "other";
+  async function refresh() {
+    const { data: files } = await db.from("intake_files").select("*").eq("intake_id", id).order("created_at");
+    for (const cat of ASSET_CATEGORIES) {
+      const zone = $(`[data-catfiles="${cat.id}"]`);
+      if (!zone) continue;
+      zone.innerHTML = (files || []).filter((f) => f.category === cat.id)
+        .map((f) => `<div style="font-size:12.5px;color:var(--ink-soft);margin-top:3px">${h(f.filename)} <span style="color:var(--ready)">✓</span></div>`).join("");
+    }
+  }
+
+  async function uploadFiles(list, category) {
+    const { data: { session: s } } = await db.auth.getSession();
+    for (const file of list) {
+      const path = `${id}/${category}/${Date.now()}-${file.name}`;
+      const prog = document.createElement("div");
+      prog.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0";
+      prog.innerHTML = `<span style="font-size:12.5px;flex:1">${h(file.name)}</span>
+        <div class="reqbar" style="width:160px"><div style="width:0%"></div></div>
+        <span style="font-size:12px;color:var(--ink-soft);width:36px">0%</span>`;
+      $("#progresszone").appendChild(prog);
+      const bar = prog.querySelector(".reqbar > div");
+      const pct = prog.querySelector("span:last-child");
+      await new Promise((resolve) => {
+        const up = new tus.Upload(file, {
+          endpoint: `${CONFIG.SUPABASE_URL}/storage/v1/upload/resumable`,
+          retryDelays: [0, 3000, 5000, 10000],
+          headers: { authorization: `Bearer ${s.access_token}`, apikey: CONFIG.SUPABASE_ANON_KEY },
+          chunkSize: 6 * 1024 * 1024,
+          uploadDataDuringCreation: true,
+          removeFingerprintOnSuccess: true,
+          metadata: { bucketName: CONFIG.BUCKET, objectName: path, contentType: file.type || "application/octet-stream" },
+          onProgress: (sent, total) => {
+            const p = Math.round((sent / total) * 100);
+            bar.style.width = p + "%"; pct.textContent = p + "%";
+          },
+          onError: () => { pct.textContent = ""; prog.innerHTML += `<span class="error">Upload failed — try again</span>`; resolve(); },
+          onSuccess: async () => {
+            await db.from("intake_files").insert({
+              intake_id: id, category, filename: file.name,
+              storage_path: path, size_bytes: file.size, mime: file.type,
+              uploaded_by: profile?.id ?? null,
+            });
+            prog.remove(); resolve();
+          },
+        });
+        up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
+      });
+    }
+    await logActivity(id, `Client uploaded ${list.length} file(s) to ${category}`);
+    refresh();
+  }
+
+  $$("[data-upcat]").forEach((b) => b.onclick = () => { pickCat = b.dataset.upcat; $("#fileinput").click(); });
+  const dz = $("#dropzone");
+  dz.onclick = () => { pickCat = "other"; $("#fileinput").click(); };
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
+  dz.ondragleave = () => dz.classList.remove("over");
+  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); uploadFiles([...e.dataTransfer.files], "other"); };
+  $("#fileinput").onchange = (e) => { uploadFiles([...e.target.files], pickCat); e.target.value = ""; };
+  refresh();
 }
