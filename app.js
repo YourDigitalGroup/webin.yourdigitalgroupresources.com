@@ -259,9 +259,9 @@ async function viewForm(id) {
       package: data.package || null,
     }).eq("id", id);
     if (intake.status === "designer_ready" && changed.size) {
+      // The database webhook sees this save and comments on the Trello card.
       const summary = [...changed].slice(0, 4).join(", ");
-      logActivity(id, `Updated: ${summary}`);
-      db.functions.invoke("handoff", { body: { intake_id: id, mode: "update", change_summary: summary } });
+      await logActivity(id, `Updated: ${summary}`);
     }
     changed.clear();
     $("#savestate").textContent = "All changes saved";
@@ -305,20 +305,19 @@ async function viewForm(id) {
       data.build_checklist = buildChecklist(data);
       changed.add("build checklist");
       clearTimeout(saveTimer); await save();
-      await db.from("intakes").update({ status: "designer_ready" }).eq("id", id);
       await logActivity(id, "Submitted for designer handoff");
-      const { error } = await db.functions.invoke("handoff", { body: { intake_id: id, mode: "handoff" } });
-      if (error) {
-        // Pull the real reason out of the function's response so the alert
-        // says WHAT failed, not just that something did.
-        let detail = error.message || "";
-        try {
-          if (error.context) {
-            const body = await error.context.text();
-            if (body) detail = `${error.context.status ?? ""} ${body}`.trim();
-          }
-        } catch (_) { /* fall back to error.message */ }
-        alert("Saved and marked designer-ready, but the Trello card failed:\n\n" + detail);
+      // Flipping the status triggers the database webhook, which creates the
+      // Trello card server-side. Poll briefly for the card link to confirm.
+      await db.from("intakes").update({ status: "designer_ready" }).eq("id", id);
+      let cardUrl = null;
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: row } = await db.from("intakes").select("trello_card_url").eq("id", id).single();
+        if (row?.trello_card_url) { cardUrl = row.trello_card_url; break; }
+        b.textContent = "Creating Trello card…";
+      }
+      if (!cardUrl) {
+        alert("Handoff saved. The Trello card is still being created — check the record page in a moment; if no card link appears, edit any field to retry.");
       }
       location.hash = `#/intake/${id}`;
     };
