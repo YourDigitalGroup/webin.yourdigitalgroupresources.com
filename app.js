@@ -231,19 +231,9 @@ async function viewForm(id) {
       <div class="card ${sec.sensitive ? "sensitive" : ""}">
         <p class="secnum">SECTION ${sec.num}</p><h2>${h(sec.title)}</h2><p class="subhead">${h(sec.sub)}</p>
         ${sec.uploads ? `<div id="uploader"></div>` : ""}
-        ${sec.checklist ? CONTENT_ITEMS.map((c) => `
-          <div class="uprow" data-checkwrap="${h(c.label)}" style="${c.cond && !c.cond(data.package) ? "display:none" : ""}">
-            <span style="flex:1;font-size:14px">${h(c.label)}${c.tag ? `<span class="badge cond">${h(c.tag)}</span>` : ""}</span>
-            <div class="seg" data-fid="content_${h(c.label)}">${["Received", "Requested", "N/A"].map((o) =>
-              `<button type="button" data-val="${o}" class="${data["content_" + c.label] === o ? "on" : ""}">${o}</button>`).join("")}</div>
-          </div>
-          ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea></div>` : ""}`).join("") + `
-          <div style="margin:12px 0 6px">
-            <button class="btn small" id="contentgen" type="button">Draft website copy with AI</button>
-            <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:8px">Writes About Us, service descriptions, and legal-page drafts from the discovery sections. Never invents testimonials, bios, or prices.</span>
-          </div>` : ""}
+        ${sec.checklist ? `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div><div id="contentzone"></div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
-        <div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>
+        ${sec.checklist ? "" : `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>`}
       </div>`).join("")}
     <div class="footerbar no-print">
       <div class="reqbar-wrap">
@@ -261,6 +251,7 @@ async function viewForm(id) {
     changed.add(label || fid);
     if (fid === "company") $("#title").textContent = value.trim() || intake.client_name;
     if (fid === "package") applyConditions();
+    if (fid === "copy_producer" || fid.startsWith("source_")) renderContent();
     updateReqBar();
     markDirty();
   }
@@ -376,9 +367,51 @@ async function viewForm(id) {
     alert("Copy drafting is taking too long — check that the ANTHROPIC_API_KEY secret is set and the latest function is deployed, then try again.");
   };
 
-  const cg = $("#contentgen");
-  if (cg) cg.onclick = async () => {
-    busy(cg, "Writing website copy…");
+  const WRITABLE_CONTENT = ["About Us / company story", "Service descriptions (copy)", "Legal/policy pages"];
+  function contentSource(label) {
+    if (!WRITABLE_CONTENT.includes(label)) return "Client";
+    const p = data.copy_producer || "";
+    if (p === "44i writes it") return "44i";
+    if (p === "Mixed") return data["source_" + label] || "Client";
+    return "Client";
+  }
+  function renderContent() {
+    const zone = $("#contentzone"); if (!zone) return;
+    const p = data.copy_producer || "";
+    const mixed = p === "Mixed";
+    zone.innerHTML =
+      (p ? "" : `<p class="hint" style="font-size:12.5px;color:var(--req);margin:0 0 8px">Answer "Who's producing the website copy?" above — these rows adapt to it.</p>`) +
+      CONTENT_ITEMS.map((c) => {
+        const canWrite = WRITABLE_CONTENT.includes(c.label);
+        const src = contentSource(c.label);
+        const opts = src === "44i" ? ["To write", "Drafted", "Final"] : ["Received", "Requested", "N/A"];
+        const v = data["content_" + c.label];
+        return `
+        <div class="uprow" data-checkwrap="${h(c.label)}" style="${c.cond && !c.cond(data.package) ? "display:none" : ""}">
+          <div style="flex:1;min-width:0">
+            <span style="font-size:14px">${h(c.label)}${c.tag ? `<span class="badge cond">${h(c.tag)}</span>` : ""}</span>
+            ${!canWrite && p && p !== "Client supplies" ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">Always client-supplied — facts we can't write for them</div>` : ""}
+          </div>
+          ${mixed && canWrite ? `<div class="seg" data-fid="source_${h(c.label)}">${["Client", "44i"].map((o) =>
+            `<button type="button" data-val="${o}" class="${(data["source_" + c.label] || "Client") === o ? "on" : ""}">${o}</button>`).join("")}</div>` : ""}
+          <div class="seg" data-fid="content_${h(c.label)}">${opts.map((o) =>
+            `<button type="button" data-val="${o}" class="${v === o ? "on" : ""}">${o}</button>`).join("")}</div>
+          ${src === "44i" ? `<button class="btn small" type="button" data-draftitem="${h(c.label)}">Draft with AI</button>` : ""}
+        </div>
+        ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea></div>` : ""}`;
+      }).join("") +
+      (CONTENT_ITEMS.some((c) => contentSource(c.label) === "44i") ? `
+        <div style="margin:12px 0 4px">
+          <button class="btn small" id="contentgen" type="button">Draft all 44i-written copy</button>
+          <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:8px">Never invents testimonials, bios, or prices.</span>
+        </div>` : "");
+    $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft with AI"));
+    const cg2 = $("#contentgen");
+    if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Draft all 44i-written copy");
+  }
+  async function runContentGen(b, target, idleLabel) {
+    busy(b, "Writing copy…");
+    data.content_target = target || null;
     data.content_generate = true;
     changed.add("AI website copy");
     clearTimeout(saveTimer); await save();
@@ -386,16 +419,18 @@ async function viewForm(id) {
       await new Promise((r) => setTimeout(r, 2000));
       const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
       if (row && row.data.content_generate !== true) {
-        if (row.data.ai_error) { data.content_generate = false; idle(cg, "Draft website copy with AI"); alert("Content drafting failed:\n\n" + row.data.ai_error); return; }
-        viewForm(id);
+        if (row.data.ai_error) { data.content_generate = false; idle(b, idleLabel); alert("Content drafting failed:\n\n" + row.data.ai_error); return; }
+        data = row.data;
+        renderContent();
+        updateReqBar();
         return;
       }
     }
     data.content_generate = false;
     clearTimeout(saveTimer); await save();
-    idle(cg, "Draft website copy with AI");
+    idle(b, idleLabel);
     alert("Content drafting is taking too long — try again.");
-  };
+  }
 
   /* --- input wiring (delegated; DOM never re-rendered on keystroke) --- */
   const view = $("#view");
@@ -414,7 +449,10 @@ async function viewForm(id) {
   });
   const labelFor = (fid) => {
     for (const s of SECTIONS) for (const f of s.fields) if (f.id === fid) return f.label;
-    return fid.startsWith("content_") ? fid.slice(8) : fid;
+    if (fid.startsWith("content_")) return fid.slice(8);
+    if (fid.startsWith("source_")) return "copy source: " + fid.slice(7);
+    if (fid.startsWith("draft_")) return "drafted copy: " + fid.slice(6);
+    return fid;
   };
 
   /* --- FAQs --- */
@@ -609,6 +647,7 @@ async function viewForm(id) {
 
   /* --- go --- */
   if ($("#faqzone")) renderFaqs();
+  if ($("#contentzone")) renderContent();
   if ($("#uploader")) loadFiles();
   applyConditions();
   updateReqBar();
