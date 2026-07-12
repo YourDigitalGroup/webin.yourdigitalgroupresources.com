@@ -141,11 +141,12 @@ const SECTIONS = [
   },
   {
     num: "08", title: "Content inventory and status",
-    sub: "Content always arrives late — so we track it. Client-provided unless noted.",
+    sub: "Decide who produces the copy first — every row below adapts to that answer.",
     checklist: true,  // rows come from CONTENT_ITEMS below, filtered by package
     fields: [
-      { id: "copy_ownership", label: "Is 44i producing any copy, or is all content client-supplied?",
-        type: "textarea", req: true, hint: "Default is client-supplied — confirm; it's the biggest timeline assumption." },
+      { id: "copy_producer", label: "Who's producing the website copy?", type: "segmented", req: true,
+        options: ["Client supplies", "44i writes it", "Mixed"],
+        hint: "Sets this whole section — statuses and AI drafting adapt per item. The biggest timeline assumption on the project." },
     ],
   },
   {
