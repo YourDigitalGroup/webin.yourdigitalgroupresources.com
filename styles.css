@@ -160,3 +160,12 @@ input:focus, textarea:focus, select:focus {
   body { background: #fff; }
   .card { border: none; padding: 12px 0; break-inside: avoid; }
 }
+
+.btn.working { pointer-events: none; opacity: 0.85; }
+.btn.working::before {
+  content: ""; display: inline-block; width: 12px; height: 12px;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; margin-right: 7px; vertical-align: -2px;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
