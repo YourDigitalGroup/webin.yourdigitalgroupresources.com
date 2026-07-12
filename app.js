@@ -231,7 +231,7 @@ async function viewForm(id) {
       <div class="card ${sec.sensitive ? "sensitive" : ""}">
         <p class="secnum">SECTION ${sec.num}</p><h2>${h(sec.title)}</h2><p class="subhead">${h(sec.sub)}</p>
         ${sec.uploads ? `<div id="uploader"></div>` : ""}
-        ${sec.checklist ? `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div><div id="contentzone"></div>` : ""}
+        ${sec.checklist ? `<div id="contentzone"></div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
         ${sec.checklist ? "" : `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>`}
       </div>`).join("")}
@@ -367,47 +367,42 @@ async function viewForm(id) {
     alert("Copy drafting is taking too long — check that the ANTHROPIC_API_KEY secret is set and the latest function is deployed, then try again.");
   };
 
-  const WRITABLE_CONTENT = ["About Us / company story", "Service descriptions (copy)", "Legal/policy pages"];
-  function contentSource(label) {
-    if (!WRITABLE_CONTENT.includes(label)) return "Client";
-    const p = data.copy_producer || "";
-    if (p === "44i writes it") return "44i";
-    if (p === "Mixed") return data["source_" + label] || "Client";
-    return "Client";
-  }
   function renderContent() {
     const zone = $("#contentzone"); if (!zone) return;
     const p = data.copy_producer || "";
-    const mixed = p === "Mixed";
-    zone.innerHTML =
-      (p ? "" : `<p class="hint" style="font-size:12.5px;color:var(--req);margin:0 0 8px">Answer "Who's producing the website copy?" above — these rows adapt to it.</p>`) +
+    const writing = p === "44i writes it";
+    zone.innerHTML = `
+      <div class="producer-block">
+        <div style="flex:1;min-width:240px">
+          <span style="font-size:14.5px;font-weight:700">Is 44i producing the copy, or is content client-supplied?<span class="badge req">REQ</span></span>
+          <div class="hint" style="font-size:12px;color:var(--ink-soft)">The biggest timeline assumption on the project — every row below adapts to this answer.</div>
+        </div>
+        <div class="seg big" data-fid="copy_producer">${["Client supplies", "44i writes it"].map((o) =>
+          `<button type="button" data-val="${o}" class="${p === o ? "on" : ""}">${o}</button>`).join("")}</div>
+      </div>
+      ${writing ? `
+      <div style="margin:0 0 14px">
+        <button class="btn primary" id="contentgen" type="button">Generate copy for all sections</button>
+        <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:10px">Grounded in their website — or competitor analysis + this form when there isn't one. Testimonials are pulled or requested, never invented.</span>
+      </div>` : ""}` +
       CONTENT_ITEMS.map((c) => {
-        const canWrite = WRITABLE_CONTENT.includes(c.label);
-        const src = contentSource(c.label);
-        const opts = src === "44i" ? ["To write", "Drafted", "Final"] : ["Received", "Requested", "N/A"];
+        const opts = writing ? ["To write", "Drafted", "Final"] : ["Received", "Requested"];
         const v = data["content_" + c.label];
         return `
         <div class="uprow" data-checkwrap="${h(c.label)}" style="${c.cond && !c.cond(data.package) ? "display:none" : ""}">
           <div style="flex:1;min-width:0">
             <span style="font-size:14px">${h(c.label)}${c.tag ? `<span class="badge cond">${h(c.tag)}</span>` : ""}</span>
-            ${!canWrite && p && p !== "Client supplies" ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">Always client-supplied — facts we can't write for them</div>` : ""}
+            ${writing && c.label === "Testimonials" ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">Real quotes only — pulled from their site or requested from customers</div>` : ""}
           </div>
-          ${mixed && canWrite ? `<div class="seg" data-fid="source_${h(c.label)}">${["Client", "44i"].map((o) =>
-            `<button type="button" data-val="${o}" class="${(data["source_" + c.label] || "Client") === o ? "on" : ""}">${o}</button>`).join("")}</div>` : ""}
           <div class="seg" data-fid="content_${h(c.label)}">${opts.map((o) =>
             `<button type="button" data-val="${o}" class="${v === o ? "on" : ""}">${o}</button>`).join("")}</div>
-          ${src === "44i" ? `<button class="btn small" type="button" data-draftitem="${h(c.label)}">Draft with AI</button>` : ""}
+          ${writing ? `<button class="btn small" type="button" data-draftitem="${h(c.label)}">Draft</button>` : ""}
         </div>
         ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea></div>` : ""}`;
-      }).join("") +
-      (CONTENT_ITEMS.some((c) => contentSource(c.label) === "44i") ? `
-        <div style="margin:12px 0 4px">
-          <button class="btn small" id="contentgen" type="button">Draft all 44i-written copy</button>
-          <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:8px">Never invents testimonials, bios, or prices.</span>
-        </div>` : "");
-    $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft with AI"));
+      }).join("");
+    $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft"));
     const cg2 = $("#contentgen");
-    if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Draft all 44i-written copy");
+    if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Generate copy for all sections");
   }
   async function runContentGen(b, target, idleLabel) {
     busy(b, "Writing copy…");
@@ -415,7 +410,7 @@ async function viewForm(id) {
     data.content_generate = true;
     changed.add("AI website copy");
     clearTimeout(saveTimer); await save();
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
       if (row && row.data.content_generate !== true) {
