@@ -18,6 +18,8 @@ const fmtBytes = (b) => b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b
 const pkgLabel = (v) => (PACKAGES.find((p) => p.value === v) || {}).label || "Package TBD";
 const initials = (n) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 const statusLabel = { draft: "Draft", submitted: "Submitted", designer_ready: "Designer-ready" };
+const busy = (b, label) => { b.disabled = true; b.classList.add("working"); b.textContent = label; };
+const idle = (b, label) => { b.disabled = false; b.classList.remove("working"); b.textContent = label; };
 
 async function logActivity(intakeId, action) {
   await db.from("intake_activity").insert({ intake_id: intakeId, actor: session?.user?.id, action });
@@ -234,7 +236,12 @@ async function viewForm(id) {
             <span style="flex:1;font-size:14px">${h(c.label)}${c.tag ? `<span class="badge cond">${h(c.tag)}</span>` : ""}</span>
             <div class="seg" data-fid="content_${h(c.label)}">${["Received", "Requested", "N/A"].map((o) =>
               `<button type="button" data-val="${o}" class="${data["content_" + c.label] === o ? "on" : ""}">${o}</button>`).join("")}</div>
-          </div>`).join("") : ""}
+          </div>
+          ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea></div>` : ""}`).join("") + `
+          <div style="margin:12px 0 6px">
+            <button class="btn small" id="contentgen" type="button">Draft website copy with AI</button>
+            <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:8px">Writes About Us, service descriptions, and legal-page drafts from the discovery sections. Never invents testimonials, bios, or prices.</span>
+          </div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
         <div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>
       </div>`).join("")}
@@ -345,7 +352,7 @@ async function viewForm(id) {
 
   $("#copygen").onclick = async () => {
     const b = $("#copygen");
-    b.disabled = true; b.textContent = "Drafting copy…";
+    busy(b, "Drafting copy…");
     data.copy_generate = true;
     changed.add("AI copy draft");
     clearTimeout(saveTimer); await save();
@@ -353,14 +360,41 @@ async function viewForm(id) {
       await new Promise((r) => setTimeout(r, 2000));
       const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
       if (row && row.data.copy_generate !== true) {
+        if (row.data.ai_error) {
+          data.copy_generate = false;
+          idle(b, "Draft suggested copy");
+          alert("Copy drafting failed:\n\n" + row.data.ai_error);
+          return;
+        }
         viewForm(id);  // re-render the whole form with the drafted fields
         return;
       }
     }
     data.copy_generate = false;          // unstick so retry works
     clearTimeout(saveTimer); await save();
-    b.disabled = false; b.textContent = "Draft suggested copy";
+    idle(b, "Draft suggested copy");
     alert("Copy drafting is taking too long — check that the ANTHROPIC_API_KEY secret is set and the latest function is deployed, then try again.");
+  };
+
+  const cg = $("#contentgen");
+  if (cg) cg.onclick = async () => {
+    busy(cg, "Writing website copy…");
+    data.content_generate = true;
+    changed.add("AI website copy");
+    clearTimeout(saveTimer); await save();
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
+      if (row && row.data.content_generate !== true) {
+        if (row.data.ai_error) { data.content_generate = false; idle(cg, "Draft website copy with AI"); alert("Content drafting failed:\n\n" + row.data.ai_error); return; }
+        viewForm(id);
+        return;
+      }
+    }
+    data.content_generate = false;
+    clearTimeout(saveTimer); await save();
+    idle(cg, "Draft website copy with AI");
+    alert("Content drafting is taking too long — try again.");
   };
 
   /* --- input wiring (delegated; DOM never re-rendered on keystroke) --- */
@@ -398,7 +432,8 @@ async function viewForm(id) {
       <div class="faqcard">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:12px;font-weight:700;color:var(--ink-faint)">FAQ ${i + 1}</span>
-          <button class="btn small" data-faqdel="${i}">Remove</button></div>
+          <span><button class="btn small" data-faqrw="${i}">Rewrite</button>
+          <button class="btn small" data-faqdel="${i}">Remove</button></span></div>
         <div class="fld"><input type="text" data-faqi="${i}" data-faqk="q"
           placeholder="Do you offer free estimates in Sioux Falls?" value="${h(f.q)}" /></div>
         <div class="fld" style="margin-bottom:0"><textarea rows="2" data-faqi="${i}" data-faqk="a"
@@ -408,7 +443,7 @@ async function viewForm(id) {
       ${faqs.length < 10 ? `<span style="font-size:12px;color:var(--ink-faint);margin-left:10px">Aim for at least 10.</span>` : ""}`;
     $("#faqgen").onclick = async () => {
       const b = $("#faqgen");
-      b.disabled = true; b.textContent = "Writing FAQs…";
+      busy(b, "Writing FAQs…");
       data.faq_generate = true;
       changed.add("FAQ generation");
       clearTimeout(saveTimer); await save();
@@ -416,6 +451,12 @@ async function viewForm(id) {
         await new Promise((r) => setTimeout(r, 2000));
         const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
         if (row && row.data.faq_generate !== true) {
+          if (row.data.ai_error) {
+            data.faq_generate = false;
+            idle(b, "Generate FAQs");
+            alert("FAQ generation failed:\n\n" + row.data.ai_error);
+            return;
+          }
           data.faqs = row.data.faqs || [];
           data.faq_generate = false;
           renderFaqs();
@@ -424,13 +465,34 @@ async function viewForm(id) {
       }
       data.faq_generate = false;         // unstick so retry works
       clearTimeout(saveTimer); await save();
-      b.disabled = false; b.textContent = "Generate FAQs";
+      idle(b, "Generate FAQs");
       alert("FAQ generation is taking too long — check that the ANTHROPIC_API_KEY secret is set, then try again.");
     };
     $("#faqadd").onclick = () => {
       data.faqs = [...(data.faqs || []), { q: "", a: "" }];
       changed.add("FAQs"); markDirty(); renderFaqs();
     };
+    $$("[data-faqrw]").forEach((b) => b.onclick = async () => {
+      busy(b, "Rewriting…");
+      data.faq_rewrite_req = { i: +b.dataset.faqrw, at: Date.now() };
+      changed.add("FAQ rewrite");
+      clearTimeout(saveTimer); await save();
+      for (let n = 0; n < 15; n++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
+        if (row && !row.data.faq_rewrite_req) {
+          if (row.data.ai_error) { data.faq_rewrite_req = null; idle(b, "Rewrite"); alert("Rewrite failed:\n\n" + row.data.ai_error); return; }
+          data.faqs = row.data.faqs || [];
+          data.faq_rewrite_req = null;
+          renderFaqs();
+          return;
+        }
+      }
+      data.faq_rewrite_req = null;
+      clearTimeout(saveTimer); await save();
+      idle(b, "Rewrite");
+      alert("Rewrite is taking too long — try again.");
+    });
     $$("[data-faqdel]").forEach((b) => b.onclick = () => {
       data.faqs.splice(+b.dataset.faqdel, 1);
       changed.add("FAQs"); markDirty(); renderFaqs();
@@ -577,6 +639,7 @@ async function viewDetail(id) {
       ${hasFiles ? `<p style="font-size:13.5px"><strong>Files on record:</strong> ${
         files.map((f) => `${h(f.filename)} (${h(f.category)})`).join(" · ")}</p>` : ""}
       ${checks.map((c) => `<p style="font-size:13.5px;margin:3px 0">${h(c.label)}: <strong>${h(d["content_" + c.label])}</strong></p>`).join("")}
+      ${sec.checklist ? CONTENT_ITEMS.filter((c) => d["draft_" + c.label]).map((c) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">Drafted copy — ${h(c.label)}</span><br /><span style="white-space:pre-wrap">${h(d["draft_" + c.label])}</span></p>`).join("") : ""}
       ${faqs.map((f, i) => `<p style="font-size:13.5px;margin:6px 0"><strong>${i + 1}. ${h(f.q)}</strong><br />${h(f.a)}</p>`).join("")}
       ${fields.map((f) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">${h(f.label)}</span><br />
         <span style="white-space:pre-wrap">${h(d[f.id])}</span></p>`).join("")}
