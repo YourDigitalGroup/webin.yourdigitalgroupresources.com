@@ -53,8 +53,8 @@ async function loadProfile() {
 function route() {
   if (!session) return viewLogin();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  if (parts[0] === "upload" && parts[1]) return viewClientUpload(parts[1]);
-  if (parts[1] === "upload" && parts[2]) return viewClientUpload(parts[2]);
+  const up = parts.indexOf("upload");
+  if (up > -1 && parts[up + 1]) return viewClientUpload(parts[up + 1]);
   if (parts[0] === "intake" && parts[1] && parts[2] === "edit") return viewForm(parts[1]);
   if (parts[0] === "intake" && parts[1]) return viewDetail(parts[1]);
   return viewList();
@@ -194,7 +194,20 @@ async function viewForm(id) {
       const names = [...new Set([...ams.map((x) => x.name), ...(v ? [v] : [])])];
       control = `<select data-fid="am_name"><option value="">Choose…</option>${
         names.map((n) => `<option ${v === n ? "selected" : ""}>${h(n)}</option>`).join("")}</select>`;
-    } else if (f.type === "textarea") control = `<textarea data-fid="${f.id}">${h(v)}</textarea>`;
+    } else if (f.type === "hours") {
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      control = days.map((dy) => {
+        const k = "hours_" + dy.toLowerCase().slice(0, 3);
+        const st = data[k] || "Open";
+        return `<div class="dayrow">
+          <span>${dy}</span>
+          <div class="seg" data-fid="${k}">${["Open", "Closed"].map((o) =>
+            `<button type="button" data-val="${o}" class="${st === o ? "on" : ""}">${o}</button>`).join("")}</div>
+          <input type="text" data-fid="${k}_time" value="${h(data[k + "_time"] ?? "")}" placeholder="8:00 AM – 5:00 PM" style="flex:1;max-width:220px" />
+        </div>`;
+      }).join("") + `<div style="margin-top:8px"><label style="font-size:13px;font-weight:600">What do you do for holidays?</label>
+        <input type="text" data-fid="hours_holidays" value="${h(data.hours_holidays ?? "")}" placeholder="Closed major holidays; on-call emergency service" /></div>`;
+    } else if (f.type === "textarea") control = `<textarea rows="2" data-fid="${f.id}">${h(v)}</textarea>`;
     else if (f.type === "select") control = `<select data-fid="${f.id}"><option value="">Choose…</option>${
       f.options.map((o) => `<option value="${o.value}" ${v === o.value ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select>`;
     else if (f.type === "segmented") control = `<div class="seg" data-fid="${f.id}">${
@@ -213,7 +226,7 @@ async function viewForm(id) {
     <div class="card">
       <p class="secnum">SECTION 00</p><h2>White-label partner</h2>
       <p class="subhead">Routes the handoff to this partner's Trello board. Required.</p>
-      <div class="fld" style="max-width:380px">
+      <div class="fld" style="max-width:300px">
         <label>Partner<span class="badge req">REQ</span></label>
         <select id="partnersel">
           <option value="">Choose partner…</option>
@@ -234,6 +247,7 @@ async function viewForm(id) {
         ${sec.checklist ? `<div id="contentzone"></div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
         ${sec.checklist ? "" : `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>`}
+        ${sec.chatbot ? `<div id="chatbotzone"></div>` : ""}
       </div>`).join("")}
     <div class="footerbar no-print">
       <div class="reqbar-wrap">
@@ -252,6 +266,11 @@ async function viewForm(id) {
     if (fid === "company") $("#title").textContent = value.trim() || intake.client_name;
     if (fid === "package") applyConditions();
     if (fid === "copy_producer" || fid.startsWith("source_")) renderContent();
+    if (fid === "chatbot") renderChatbot();
+    if (fid === "address_zip") {
+      const el = $(`[data-fid="address_zip"]`);
+      if (el) el.classList.toggle("invalid", !!value.trim() && !/^\d{5}(-\d{4})?$/.test(value.trim()));
+    }
     updateReqBar();
     markDirty();
   }
@@ -398,12 +417,85 @@ async function viewForm(id) {
             `<button type="button" data-val="${o}" class="${v === o ? "on" : ""}">${o}</button>`).join("")}</div>
           ${writing ? `<button class="btn small" type="button" data-draftitem="${h(c.label)}">Draft</button>` : ""}
         </div>
-        ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea></div>` : ""}`;
+        ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea>
+          <span style="margin-top:4px"><button class="btn small" type="button" data-approve="${h(c.label)}">${data["content_" + c.label] === "Final" ? "✓ Approved" : "Approve"}</button>
+          <button class="btn small" type="button" data-crw="${h(c.label)}">Rewrite</button></span>
+          <div class="coach" hidden data-ccoach="${h(c.label)}">
+            <input type="text" placeholder="Coach the rewrite — tone, angle, must-mention (optional)" style="flex:1" />
+            <button class="btn small" type="button" data-cgo="${h(c.label)}">Go</button></div></div>` : ""}`;
       }).join("");
     $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft"));
+    $$("[data-approve]", zone).forEach((b) => b.onclick = () => {
+      setField("content_" + b.dataset.approve, "Final", b.dataset.approve + " approved");
+      renderContent();
+    });
+    $$("[data-crw]", zone).forEach((b) => b.onclick = () => {
+      const row = $(`[data-ccoach="${CSS.escape(b.dataset.crw)}"]`);
+      if (row) { row.hidden = !row.hidden; if (!row.hidden) row.querySelector("input").focus(); }
+    });
+    $$("[data-cgo]", zone).forEach((b) => b.onclick = () => {
+      const coach = $(`[data-ccoach="${CSS.escape(b.dataset.cgo)}"]`)?.querySelector("input")?.value?.trim() || "";
+      data.content_coach = coach || null;
+      runContentGen(b, b.dataset.cgo, "Go");
+    });
     const cg2 = $("#contentgen");
     if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Generate copy for all sections");
   }
+  function renderChatbot() {
+    const zone = $("#chatbotzone"); if (!zone) return;
+    if (data.chatbot !== "Yes") { zone.innerHTML = ""; return; }
+    const convos = data.chatbot_convos || [];
+    zone.innerHTML = `
+      <div class="faqcard" style="background:var(--field-tint);border-color:var(--line);margin-top:10px">
+        <label style="font-size:13px;font-weight:600">AI chatbot conversations — GoHighLevel</label>
+        <p class="hint" style="font-size:12px;color:var(--ink-soft);margin:2px 0 8px">
+          Generates 20 visitor conversations answering from this intake and steering to the site's goal (${h(data.top_action || data.primary_goal || "set the goal in Section 03 first")}). Edit below, then export for GHL.</p>
+        <span>
+          <button class="btn small" id="chatgen" type="button">${convos.length ? "Regenerate 20 conversations" : "Generate 20 conversations"}</button>
+          ${convos.length ? `<button class="btn small" id="chatexport" type="button">Export CSV for GoHighLevel</button>` : ""}
+        </span>
+      </div>
+      ${convos.map((cv, i) => `
+        <div class="faqcard" style="padding:10px 12px">
+          <span style="font-size:11.5px;font-weight:700;color:var(--ink-faint)">CONVO ${i + 1}</span>
+          <div class="fld" style="margin:4px 0 6px"><input type="text" data-cbi="${i}" data-cbk="q" value="${h(cv.q)}" placeholder="Visitor message" /></div>
+          <div class="fld" style="margin:0"><textarea rows="2" data-cbi="${i}" data-cbk="a" placeholder="Bot reply">${h(cv.a)}</textarea></div>
+        </div>`).join("")}`;
+    const g = $("#chatgen");
+    if (g) g.onclick = async () => {
+      busy(g, "Writing conversations…");
+      data.chatbot_generate = true;
+      changed.add("chatbot conversations");
+      clearTimeout(saveTimer); await save();
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
+        if (row && row.data.chatbot_generate !== true) {
+          if (row.data.ai_error) { data.chatbot_generate = false; idle(g, "Generate 20 conversations"); alert("Chatbot generation failed:\n\n" + row.data.ai_error); return; }
+          data.chatbot_convos = row.data.chatbot_convos || [];
+          data.chatbot_generate = false;
+          renderChatbot();
+          return;
+        }
+      }
+      data.chatbot_generate = false;
+      clearTimeout(saveTimer); await save();
+      idle(g, "Generate 20 conversations");
+      alert("Chatbot generation is taking too long — try again.");
+    };
+    const ex = $("#chatexport");
+    if (ex) ex.onclick = () => {
+      const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+      const csv = "question,answer\n" + (data.chatbot_convos || []).map((cv) => `${esc(cv.q)},${esc(cv.a)}`).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const aEl = document.createElement("a");
+      aEl.href = URL.createObjectURL(blob);
+      aEl.download = `${(data.company || intake.client_name).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-ghl-chatbot.csv`;
+      aEl.click();
+      URL.revokeObjectURL(aEl.href);
+    };
+  }
+
   async function runContentGen(b, target, idleLabel) {
     busy(b, "Writing copy…");
     data.content_target = target || null;
@@ -426,6 +518,14 @@ async function viewForm(id) {
     idle(b, idleLabel);
     alert("Content drafting is taking too long — try again.");
   }
+
+  document.addEventListener("input", (e) => {
+    const el = e.target.closest("[data-cbi]");
+    if (!el || !$("#chatbotzone")?.contains(el)) return;
+    const i = +el.dataset.cbi, k = el.dataset.cbk;
+    data.chatbot_convos = data.chatbot_convos || [];
+    if (data.chatbot_convos[i]) { data.chatbot_convos[i][k] = el.value; changed.add("chatbot conversations"); markDirty(); }
+  });
 
   /* --- input wiring (delegated; DOM never re-rendered on keystroke) --- */
   const view = $("#view");
@@ -467,6 +567,9 @@ async function viewForm(id) {
           <span style="font-size:12px;font-weight:700;color:var(--ink-faint)">FAQ ${i + 1}</span>
           <span><button class="btn small" data-faqrw="${i}">Rewrite</button>
           <button class="btn small" data-faqdel="${i}">Remove</button></span></div>
+        <div class="coach" hidden data-coachrow="${i}">
+          <input type="text" placeholder="Coach the rewrite — tone, angle, must-mention (optional)" style="flex:1" />
+          <button class="btn small" data-faqgo="${i}" type="button">Go</button></div>
         <div class="fld"><input type="text" data-faqi="${i}" data-faqk="q"
           placeholder="Do you offer free estimates in Sioux Falls?" value="${h(f.q)}" /></div>
         <div class="fld" style="margin-bottom:0"><textarea rows="2" data-faqi="${i}" data-faqk="a"
@@ -505,16 +608,22 @@ async function viewForm(id) {
       data.faqs = [...(data.faqs || []), { q: "", a: "" }];
       changed.add("FAQs"); markDirty(); renderFaqs();
     };
-    $$("[data-faqrw]").forEach((b) => b.onclick = async () => {
+    $$("[data-faqrw]").forEach((b) => b.onclick = () => {
+      const row = $(`[data-coachrow="${b.dataset.faqrw}"]`);
+      if (row) { row.hidden = !row.hidden; if (!row.hidden) row.querySelector("input").focus(); }
+    });
+    $$("[data-faqgo]").forEach((b) => b.onclick = async () => {
+      const i = +b.dataset.faqgo;
+      const coach = $(`[data-coachrow="${i}"]`)?.querySelector("input")?.value?.trim() || "";
       busy(b, "Rewriting…");
-      data.faq_rewrite_req = { i: +b.dataset.faqrw, at: Date.now() };
+      data.faq_rewrite_req = { i, at: Date.now(), coach };
       changed.add("FAQ rewrite");
       clearTimeout(saveTimer); await save();
       for (let n = 0; n < 15; n++) {
         await new Promise((r) => setTimeout(r, 2000));
         const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
         if (row && !row.data.faq_rewrite_req) {
-          if (row.data.ai_error) { data.faq_rewrite_req = null; idle(b, "Rewrite"); alert("Rewrite failed:\n\n" + row.data.ai_error); return; }
+          if (row.data.ai_error) { data.faq_rewrite_req = null; idle(b, "Go"); alert("Rewrite failed:\n\n" + row.data.ai_error); return; }
           data.faqs = row.data.faqs || [];
           data.faq_rewrite_req = null;
           renderFaqs();
@@ -523,7 +632,7 @@ async function viewForm(id) {
       }
       data.faq_rewrite_req = null;
       clearTimeout(saveTimer); await save();
-      idle(b, "Rewrite");
+      idle(b, "Go");
       alert("Rewrite is taking too long — try again.");
     });
     $$("[data-faqdel]").forEach((b) => b.onclick = () => {
@@ -546,8 +655,11 @@ async function viewForm(id) {
   }
   function renderUploader() {
     const slugP = (partners || []).find((x) => x.id === partnerId);
+    const slugify = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    const cslug = slugify(data.company || intake.client_name);
     const clientLink = location.href.split("#")[0] + "#/" +
-      (slugP?.slug ? encodeURIComponent(slugP.slug) + "/" : "") + "upload/" + id;
+      [slugP?.slug ? encodeURIComponent(slugP.slug) : null, cslug || null, "upload", id]
+        .filter(Boolean).join("/");
     $("#uploader").innerHTML = `
       <div class="uprow" style="align-items:flex-start">
         <div style="flex:1;min-width:0">
@@ -643,6 +755,7 @@ async function viewForm(id) {
   /* --- go --- */
   if ($("#faqzone")) renderFaqs();
   if ($("#contentzone")) renderContent();
+  if ($("#chatbotzone")) renderChatbot();
   if ($("#uploader")) loadFiles();
   applyConditions();
   updateReqBar();

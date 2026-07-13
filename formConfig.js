@@ -11,6 +11,8 @@ const PACKAGES = [
   { value: "monthly-10", label: "Monthly · 10-page" },
 ];
 
+const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+
 const is5or10 = (pkg) => /-(5|10)$/.test(pkg || "");
 const is10 = (pkg) => /-10$/.test(pkg || "");
 const isMonthly = (pkg) => /^monthly-/.test(pkg || "");
@@ -56,21 +58,27 @@ const SECTIONS = [
         hint: "The person with final design sign-off." },
       { id: "contact_email", label: "Main contact email", type: "email", req: true, half: true },
       { id: "contact_phone", label: "Phone number", type: "text", req: true, half: true },
-      { id: "address", label: "Physical address", type: "text",
-        hint: "For the embedded map / local SEO — confirm it's the address they want public." },
-      { id: "hours", label: "Hours of operation", type: "text", hint: "Normal weekly hours / emergency hours." },
+      { id: "address_street", label: "Street address", type: "text", half: true,
+        hint: "The address they want public — feeds the map + local SEO." },
+      { id: "address_city", label: "City", type: "text", half: true },
+      { id: "address_state", label: "State", type: "select", half: true,
+        options: US_STATES.map((s) => ({ value: s, label: s })) },
+      { id: "address_zip", label: "ZIP code", type: "text", half: true, hint: "12345 or 12345-6789" },
+      { id: "hours", label: "Hours of operation", type: "hours" },
     ],
   },
   {
-    num: "02", title: "Package and scope",
+    num: "02", title: "Package and scope", chatbot: true,
     sub: "Set by the sale — confirm what was sold, then collect what the included features need.",
     fields: [
       { id: "package", label: "Package sold", type: "select", options: PACKAGES, req: true, half: true },
       { id: "chatbot", label: "ChatBot on the site?", type: "segmented", options: ["Yes", "No"], half: true },
       { id: "form_notify_email", label: "Custom forms — notification email(s)", type: "text", req: true,
         hint: "Where do form submissions go? All packages." },
-      { id: "url_emails", label: "3 URL email addresses", type: "text", cond: is5or10, tag: "5/10-page",
-        hint: "Which to create (info@, sales@…)? Anything to preserve or migrate?" },
+      { id: "url_email_1", label: "URL email 1", type: "text", cond: is5or10, tag: "5/10-page", half: true,
+        hint: "Which to create (info@, sales@…)? Note migrations." },
+      { id: "url_email_2", label: "URL email 2", type: "text", cond: is5or10, tag: "5/10-page", half: true },
+      { id: "url_email_3", label: "URL email 3", type: "text", cond: is5or10, tag: "5/10-page", half: true },
       { id: "newsletter", label: "Newsletter platform", type: "text", cond: is5or10, tag: "5/10-page",
         hint: "Mailchimp, Constant Contact…? Does an account already exist?" },
       { id: "blog_ownership", label: "News/blog ownership", type: "text", cond: is10, tag: "10-page",
@@ -98,7 +106,6 @@ const SECTIONS = [
         hint: "Drives the primary call-to-action sitewide." },
       { id: "top_services", label: "Top services or products to feature, ranked", type: "textarea", req: true,
         hint: "The headliners, not the full catalog." },
-      { id: "site_structure", label: "Site page structure", type: "textarea", rec: true, hint: "Rough outline for page structure." },
       { id: "success_6mo", label: "How will you know the site is working in 6 months?", type: "textarea", rec: true },
     ],
   },
@@ -107,8 +114,10 @@ const SECTIONS = [
     sub: "Who lands on this site, and what they're worried about when they do.",
     fields: [
       { id: "ideal_customer", label: "Who is the ideal customer?", type: "textarea", req: true },
-      { id: "competitors", label: "Top 2-3 competitors (with URLs)", type: "textarea", rec: true,
-        hint: "Not to copy — so you don't blend in. Include ones they admire or want to beat." },
+      { id: "competitor_1", label: "Competitor 1 URL", type: "text", rec: true, half: true,
+        hint: "Not to copy — so you don't blend in." },
+      { id: "competitor_2", label: "Competitor 2 URL", type: "text", half: true },
+      { id: "competitor_3", label: "Competitor 3 URL", type: "text", half: true },
       { id: "industry_notes", label: "Anything about your industry we should know?", type: "textarea", rec: true,
         hint: "Compliance, licensing to display, seasonality, jargon to use or avoid." },
     ],
@@ -122,8 +131,11 @@ const SECTIONS = [
       { id: "brand_colors", label: "Primary brand colors", type: "text", rec: true,
         hint: "Hex if they have them; otherwise describe and we pull from the logo." },
       { id: "fonts", label: "Fonts", type: "text", rec: true, hint: "Brand fonts? Name them. If none, we choose." },
-      { id: "inspiration", label: "Inspirational sites — and WHY for each", type: "textarea", req: true,
-        hint: "A URL alone is useless — capture the specific reason: layout, colors, the feel?" },
+      { id: "inspiration_url_1", label: "Inspiration site 1", type: "text", req: true, half: true,
+        hint: "A URL alone is useless — capture the WHY next to it." },
+      { id: "inspiration_why_1", label: "Why? (layout, colors, feel…)", type: "text", req: true, half: true },
+      { id: "inspiration_url_2", label: "Inspiration site 2", type: "text", half: true },
+      { id: "inspiration_why_2", label: "Why?", type: "text", half: true },
       { id: "avoid", label: "Things to AVOID", type: "textarea", req: true,
         hint: "Pet peeves, sites they hate, off-limits colors/words/imagery." },
     ],
@@ -144,9 +156,9 @@ const SECTIONS = [
     sub: "Decide who produces the copy first — every row below adapts to that answer.",
     checklist: true,  // rows come from CONTENT_ITEMS below, filtered by package
     fields: [
-      { id: "copy_producer", label: "Who's producing the website copy?", type: "segmented", req: true,
-        options: ["Client supplies", "44i writes it", "Mixed"],
-        hint: "Sets this whole section — statuses and AI drafting adapt per item. The biggest timeline assumption on the project." },
+      { id: "copy_producer", label: "Is 44i producing the copy, or is content client-supplied?", type: "segmented", req: true,
+        options: ["Client supplies", "44i writes it"],
+        hint: "The biggest timeline assumption on the project — every row below adapts to this answer." },
     ],
   },
   {
@@ -163,8 +175,10 @@ const SECTIONS = [
       { id: "hosting", label: "Where is it hosted?", type: "text", req: true, half: true, hint: "GoDaddy, Wix, Squarespace, unknown…" },
       { id: "domain_owned", label: "Do they own the domain?", type: "segmented", options: ["Yes", "No", "Not sure"], req: true, half: true },
       { id: "current_cms", label: "Current CMS", type: "text", req: true, half: true },
-      { id: "domain_emails", label: "Emails tied to the domain? Provider?", type: "text", req: true, half: true,
-        hint: "If yes, don't disrupt them during migration." },
+      { id: "domain_emails", label: "Emails tied to the domain?", type: "segmented", req: true, half: true,
+        options: ["Yes", "No", "Not sure"], hint: "If yes, don't disrupt them during migration." },
+      { id: "email_provider", label: "Email provider (if yes)", type: "text", half: true,
+        hint: "Google Workspace, Outlook, GoDaddy…" },
       { id: "registrar_login", label: "Domain registrar login", type: "text", half: true },
       { id: "cms_login", label: "CMS / admin login", type: "text", half: true },
       { id: "ga4_email", label: "Grant GA4 access to which email?", type: "email" },
