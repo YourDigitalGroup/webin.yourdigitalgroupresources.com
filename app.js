@@ -29,11 +29,16 @@ async function logActivity(intakeId, action) {
 (async function boot() {
   const { data } = await db.auth.getSession();
   session = data.session;
-  if (!session && !CONFIG.REQUIRE_LOGIN) {
+  const isUploadRoute = () => location.hash.includes("/upload/");
+  if (!session && (!CONFIG.REQUIRE_LOGIN || isUploadRoute())) {
+    // Client upload pages work without login via a scoped anonymous session;
+    // database rules confine anonymous users to uploading only.
     const { data: anon } = await db.auth.signInAnonymously();
     session = anon?.session ?? null;
-    // If this fails, anonymous sign-ins are off in the dashboard —
-    // the login screen appears as the fallback.
+  }
+  // A team page opened with a leftover anonymous session still needs the gate.
+  if (CONFIG.REQUIRE_LOGIN && session?.user?.is_anonymous && !isUploadRoute()) {
+    session = null;
   }
   if (session) await loadProfile();
   db.auth.onAuthStateChange(async (_e, s) => {
@@ -899,8 +904,8 @@ async function viewDetail(id) {
    label — never 44i). Files land in the same bucket + intake_files rows the
    form reads, so they appear in Section 07 automatically. */
 async function viewClientUpload(id) {
-  const { data: intake } = await db.from("intakes")
-    .select("id, client_name, partners:partner_id(name)").eq("id", id).single();
+  const { data: info } = await db.rpc("get_upload_info", { iid: id });
+  const intake = info?.length ? { id, client_name: info[0].client_name, partners: { name: info[0].partner_name } } : null;
   if (!intake) {
     app.innerHTML = `<div class="login-wrap"><div class="card login-card"><h1 style="font-size:18px">Link not found</h1><p class="subhead">This upload link isn't valid — please check with your account manager.</p></div></div>`;
     return;
