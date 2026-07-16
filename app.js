@@ -64,10 +64,10 @@ function shell(inner) {
   app.innerHTML = `
     <div class="shell">
       <div class="topbar no-print">
-        <a href="#/" style="text-decoration:none;color:inherit"><span class="wordmark">44<span>i</span> · Website intakes</span></a>
+        <a href="#/" style="text-decoration:none;color:inherit"><span class="wordmark">44i Digital Web Intake Form</span></a>
         <div style="display:flex;align-items:center;gap:12px">
           ${session.user.is_anonymous
-            ? `<span class="who">44i team</span>`
+            ? ``
             : `<span class="who">${h(profile?.full_name || session.user.email)}${profile?.role ? " · " + h(profile.role) : ""}</span>
                <button class="btn small" id="signout">Sign out</button>`}
         </div>
@@ -822,6 +822,7 @@ async function viewDetail(id) {
         <button class="btn" id="brief">Download brief (PDF)</button>
         <button class="btn" id="zip" ${files?.length ? "" : "disabled"}>All assets (.zip, ${(totalBytes / 1e6).toFixed(0)} MB)</button>
         <a href="#/intake/${id}/edit"><button class="btn primary">Open intake</button></a>
+        <button class="btn danger" id="delintake">Delete</button>
       </div>
     </div>
     ${SECTIONS.map(sectionHtml).join("")}
@@ -834,6 +835,45 @@ async function viewDetail(id) {
   // The brief: this page IS the brief — print styles strip the chrome,
   // so this opens the browser's save-as-PDF dialog.
   $("#brief").onclick = () => window.print();
+  $("#delintake").onclick = async () => {
+    const sure = await new Promise((resolve) => {
+      const ov = document.createElement("div");
+      ov.className = "modal-overlay";
+      ov.innerHTML = `
+        <div class="modal">
+          <h2 style="margin:0 0 8px">Are you sure?</h2>
+          <p style="font-size:14px;margin:0 0 6px">You're about to permanently delete <strong>${h(intake.client_name)}</strong>.</p>
+          <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px"><strong>ALL items will be deleted:</strong> the intake form, all drafted copy, FAQs and chatbot conversations, the full activity history, and every uploaded file.</p>
+          <p style="font-size:13px;color:var(--danger);margin:0 0 14px">This cannot be undone.${intake.trello_card_url ? " The Trello card is not deleted — archive it in Trello separately." : ""}</p>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn" data-m="cancel">Cancel</button>
+            <button class="btn danger" data-m="ok">Yes, delete everything</button>
+          </div>
+        </div>`;
+      document.body.appendChild(ov);
+      ov.querySelector('[data-m="cancel"]').onclick = () => { ov.remove(); resolve(false); };
+      ov.querySelector('[data-m="ok"]').onclick = () => { ov.remove(); resolve(true); };
+      ov.onclick = (e) => { if (e.target === ov) { ov.remove(); resolve(false); } };
+    });
+    if (!sure) return;
+    const b = $("#delintake");
+    busy(b, "Deleting…");
+    try {
+      const { data: fl } = await db.from("intake_files").select("storage_path").eq("intake_id", id);
+      const paths = (fl || []).map((f) => f.storage_path);
+      for (let i = 0; i < paths.length; i += 100) {
+        await db.storage.from(CONFIG.BUCKET).remove(paths.slice(i, i + 100));
+      }
+      await db.from("intake_activity").delete().eq("intake_id", id);
+      await db.from("intake_files").delete().eq("intake_id", id);
+      const { error } = await db.from("intakes").delete().eq("id", id);
+      if (error) throw error;
+      location.hash = "#/";
+    } catch (e) {
+      idle(b, "Delete");
+      alert("Delete failed:\n\n" + (e.message || e));
+    }
+  };
 
   $("#zip").onclick = async () => {
     const b = $("#zip"); b.disabled = true; b.textContent = "Zipping…";

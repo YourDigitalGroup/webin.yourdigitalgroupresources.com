@@ -153,7 +153,8 @@ input:focus, textarea:focus, select:focus {
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .login-card { width: 100%; max-width: 380px; }
 .wordmark { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
-.wordmark span { color: var(--brand-blue); }
+.wordmark { color: #000; }
+.wordmark span { color: #000; }
 
 .activity { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0; }
 .error { color: var(--danger); font-size: 13px; }
@@ -190,3 +191,16 @@ input:focus, textarea:focus, select:focus {
 .seg.big button { min-width: 110px; }
 select { padding-top: 0; padding-bottom: 0; }
 @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+
+.btn.danger { border-color: var(--danger); color: var(--danger); background: #fff; }
+.btn.danger:hover { background: var(--danger); color: #fff; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(22, 35, 58, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+}
+.modal {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 20px 22px; max-width: 460px; width: 100%;
+  box-shadow: 0 18px 50px rgba(22, 35, 58, 0.25);
+}
