@@ -36,13 +36,15 @@ async function logActivity(intakeId, action) {
     const { data: anon } = await db.auth.signInAnonymously();
     session = anon?.session ?? null;
   }
-  // A team page opened with a leftover anonymous session still needs the gate.
+  // A team page opened with a leftover anonymous session still needs the
+  // gate — destroy the stored session so nothing can restore it.
   if (CONFIG.REQUIRE_LOGIN && session?.user?.is_anonymous && !isUploadRoute()) {
+    await db.auth.signOut();
     session = null;
   }
   if (session) await loadProfile();
   db.auth.onAuthStateChange(async (_e, s) => {
-    session = s;
+    session = (CONFIG.REQUIRE_LOGIN && s?.user?.is_anonymous && !isUploadRoute()) ? null : s;
     if (session) await loadProfile();
     route();
   });
@@ -51,15 +53,23 @@ async function logActivity(intakeId, action) {
 })();
 
 async function loadProfile() {
-  const { data } = await db.from("profiles").select("*").eq("id", session.user.id).single();
+  const { data } = await db.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
   profile = data;
+  if (!profile && !session.user.is_anonymous) {
+    const full_name = (session.user.email || "44i Team").split("@")[0];
+    const { data: created } = await db.from("profiles")
+      .insert({ id: session.user.id, full_name }).select().maybeSingle();
+    profile = created ?? { id: session.user.id, full_name };
+  }
 }
 
 function route() {
-  if (!session) return viewLogin();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const up = parts.indexOf("upload");
-  if (up > -1 && parts[up + 1]) return viewClientUpload(parts[up + 1]);
+  const onUpload = up > -1 && !!parts[up + 1];
+  if (CONFIG.REQUIRE_LOGIN && session?.user?.is_anonymous && !onUpload) return viewLogin();
+  if (!session) return viewLogin();
+  if (onUpload) return viewClientUpload(parts[up + 1]);
   if (parts[0] === "intake" && parts[1] && parts[2] === "edit") return viewForm(parts[1]);
   if (parts[0] === "intake" && parts[1]) return viewDetail(parts[1]);
   return viewList();
