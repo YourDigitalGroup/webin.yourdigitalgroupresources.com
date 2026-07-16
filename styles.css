@@ -58,13 +58,14 @@ button { font-family: inherit; }
 }
 .subhead { font-size: 13px; color: var(--ink-soft); margin: 2px 0 18px; }
 
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 20px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; align-items: start; }
 
 .fld { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 12px; }
 .fld .seg { align-self: flex-start; }  /* segmented controls size to content, never stretch */
 .fld label { font-size: 13px; font-weight: 600; }
 .fld .hint { font-size: 12px; color: var(--ink-faint); }
 
+input[type="text"], input[type="email"], input[type="date"], input[type="password"], select { height: 38px; }
 input[type="text"], input[type="email"], input[type="date"], input[type="password"],
 textarea, select {
   font: inherit; font-size: 14px; color: var(--ink);
@@ -182,3 +183,10 @@ input:focus, textarea:focus, select:focus {
 .coach { display: flex; gap: 8px; margin-top: 6px; }
 .dayrow { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; flex-wrap: wrap; }
 .dayrow > span { width: 88px; font-size: 13px; font-weight: 500; }
+
+.fld label { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.fld .hint { font-size: 12px; color: var(--ink-faint); line-height: 1.4; }
+.seg button { min-width: 72px; text-align: center; }
+.seg.big button { min-width: 110px; }
+select { padding-top: 0; padding-bottom: 0; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }

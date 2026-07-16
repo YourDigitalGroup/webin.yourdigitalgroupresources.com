@@ -118,16 +118,27 @@ async function viewList() {
         <button data-s="submitted">Submitted</button>
         <button data-s="designer_ready">Designer-ready</button>
       </div>
+      <select id="amfilter" style="width:auto;min-width:150px"><option value="">All AMs</option></select>
       <button class="btn primary" id="newintake">New intake</button>
     </div>
     <div class="rowlist" id="list"><div class="row" style="cursor:default"><span class="meta">Loading…</span></div></div>`);
 
   let rows = [];
   let status = "all";
+  let amSel = "";
+
+  db.from("team_members").select("name").eq("role", "am").eq("active", true).order("name")
+    .then(({ data: ams }) => {
+      const sel = $("#amfilter");
+      if (sel && ams?.length) {
+        sel.innerHTML = `<option value="">All AMs</option>` + ams.map((x) => `<option>${h(x.name)}</option>`).join("");
+        sel.onchange = () => { amSel = sel.value; render(); };
+      }
+    });
 
   async function load() {
     let q = db.from("intakes")
-      .select("id, client_name, status, package, req_missing, updated_at, handed_off_at, profiles:created_by(full_name), partners:partner_id(name)")
+      .select("id, client_name, status, package, req_missing, updated_at, handed_off_at, data, profiles:created_by(full_name), partners:partner_id(name)")
       .order("updated_at", { ascending: false });
     if (status !== "all") q = q.eq("status", status);
     const { data } = await q;
@@ -137,7 +148,8 @@ async function viewList() {
 
   function render() {
     const term = ($("#q").value || "").toLowerCase();
-    const visible = rows.filter((r) => r.client_name.toLowerCase().includes(term));
+    const visible = rows.filter((r) => r.client_name.toLowerCase().includes(term) &&
+      (!amSel || (r.data?.am_name || "") === amSel));
     $("#list").innerHTML = visible.length ? visible.map((r) => `
       <a class="row" href="#/intake/${r.id}">
         <div class="avatar">${h(initials(r.client_name))}</div>
@@ -214,7 +226,7 @@ async function viewForm(id) {
       f.options.map((o) => `<button type="button" data-val="${h(o)}" class="${v === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>`;
     else control = `<input type="${f.type === "date" ? "date" : f.type === "email" ? "email" : "text"}" data-fid="${f.id}" value="${h(v)}" />`;
     return `<div class="fld" data-wrap="${f.id}" style="${f.half ? "" : "grid-column:1/-1;"}${hidden ? "display:none" : ""}">
-      <label>${h(f.label)}${badges}</label>${f.hint ? `<span class="hint">${h(f.hint)}</span>` : ""}${control}</div>`;
+      <label>${h(f.label)}${badges}</label>${control}${f.hint ? `<span class="hint">${h(f.hint)}</span>` : ""}</div>`;
   };
 
   shell(`
@@ -225,7 +237,7 @@ async function viewForm(id) {
     </div>
     <div class="card">
       <p class="secnum">SECTION 00</p><h2>White-label partner</h2>
-      <p class="subhead">Routes the handoff to this partner's Trello board. Required.</p>
+      <p class="subhead">Brands the client upload page and attributes the build. Required.</p>
       <div class="fld" style="max-width:300px">
         <label>Partner<span class="badge req">REQ</span></label>
         <select id="partnersel">
@@ -247,8 +259,13 @@ async function viewForm(id) {
         ${sec.checklist ? `<div id="contentzone"></div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
         ${sec.checklist ? "" : `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>`}
-        ${sec.chatbot ? `<div id="chatbotzone"></div>` : ""}
-      </div>`).join("")}
+      </div>${sec.checklist ? `
+      <div class="card" id="chatbotcard" style="display:none">
+        <p class="secnum">AI CHATBOT</p>
+        <h2>Chatbot conversations</h2>
+        <p class="subhead">Built after the site copy so the AI writes with full context. Appears because the chatbot add-on is sold in Section 02.</p>
+        <div id="chatbotzone"></div>
+      </div>` : ""}`).join("")}
     <div class="footerbar no-print">
       <div class="reqbar-wrap">
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">
@@ -443,6 +460,8 @@ async function viewForm(id) {
   }
   function renderChatbot() {
     const zone = $("#chatbotzone"); if (!zone) return;
+    const card = $("#chatbotcard");
+    if (card) card.style.display = data.chatbot === "Yes" ? "" : "none";
     if (data.chatbot !== "Yes") { zone.innerHTML = ""; return; }
     const convos = data.chatbot_convos || [];
     zone.innerHTML = `
