@@ -65,10 +65,16 @@ const SECTIONS = [
         options: US_STATES.map((s) => ({ value: s, label: s })) },
       { id: "address_zip", label: "ZIP code", type: "text", half: true, hint: "12345 or 12345-6789" },
       { id: "hours", label: "Hours of operation", type: "hours" },
+      { id: "social_facebook", label: "Facebook URL", type: "text", half: true,
+        hint: "Linked in the footer + used for local SEO signals." },
+      { id: "social_instagram", label: "Instagram URL", type: "text", half: true },
+      { id: "social_linkedin", label: "LinkedIn URL", type: "text", half: true },
+      { id: "social_other", label: "Other social URL", type: "text", half: true,
+        hint: "TikTok, YouTube, X, Yelp…" },
     ],
   },
   {
-    num: "02", title: "Package and scope", chatbot: true,
+    num: "02", title: "Package and scope",
     sub: "Set by the sale — confirm what was sold, then collect what the included features need.",
     fields: [
       { id: "package", label: "Package sold", type: "select", options: PACKAGES, req: true, half: true },
