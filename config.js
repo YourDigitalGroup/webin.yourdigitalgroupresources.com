@@ -9,5 +9,5 @@ const CONFIG = {
   // false = no password screen; visitors are signed in anonymously so the
   // database still works. Requires Dashboard > Authentication > Sign In / Up >
   // "Allow anonymous sign-ins" to be ON. Set true to restore the login gate.
-  REQUIRE_LOGIN: false,
+  REQUIRE_LOGIN: true,
 };
