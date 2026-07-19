@@ -28,9 +28,9 @@
      images.unsplash.com/photo-... (keep the ?auto=format&fit=crop part). */
   --img-hero: url("https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?auto=format&fit=crop&w=1400&q=70");
   --img-feature: url("https://images.unsplash.com/photo-1535132011086-b8818f016104?auto=format&fit=crop&w=1400&q=70");
-  --img-game-3: url("images/game-3.jpg");
-  --img-game-4: url("images/game-4.jpg");
-  --img-game-5: url("images/game-5.jpg");
+  --img-game-3: url("game-3.jpg");
+  --img-game-4: url("game-4.jpg");
+  --img-game-5: url("game-5.jpg");
 }
 
 /* ---------- Reset ---------- */
