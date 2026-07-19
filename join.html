@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+  <meta name="theme-color" content="#0b1e36" />
+  <title>Join a Round — 9 Point Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-top">
+      <div class="wrap masthead-top-inner">
+        <a class="brand" href="index.html">
+          <span class="brand-mark">9</span>
+          <span class="brand-name">9&nbsp;Point&nbsp;Game</span>
+        </a>
+      </div>
+    </div>
+    <nav class="masthead-nav">
+      <div class="wrap masthead-nav-inner">
+        <a class="nav-link" href="index.html">Home</a>
+        <a class="nav-link" href="new.html">New Round</a>
+        <a class="nav-link is-active" href="join.html">Join</a>
+      </div>
+    </nav>
+    <div class="header-rule"></div>
+  </header>
+
+  <main>
+    <section class="page-header">
+      <div class="wrap">
+        <p class="page-header-eyebrow">Join a Round</p>
+        <h1 class="page-header-title">Watch it live</h1>
+        <p class="page-header-sub">
+          Enter the code your scorekeeper shared. You'll join as a live viewer.
+        </p>
+      </div>
+    </section>
+
+    <section class="section wrap">
+      <div class="join-card">
+        <div class="join-mark">9</div>
+        <label class="join-field-label" for="code-input">Round Code</label>
+        <form class="join-form" id="join-form">
+          <input
+            type="text"
+            id="code-input"
+            class="code-input"
+            placeholder="GLF-482"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            inputmode="text"
+            maxlength="10"
+          />
+          <button type="submit" class="btn btn-crimson btn-block btn-lg">Join the Round</button>
+        </form>
+        <p class="form-error" id="join-error" hidden></p>
+        <p class="join-hint">No score entry needed — just follow along.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p class="footer-text">
+        An independent scoring app for the 3-man/9-point, 4-man/12-point, and
+        5-man/15-point games. Not affiliated with the USGA.
+      </p>
+    </div>
+  </footer>
+
+  <script src="config.js" defer></script>
+  <script src="join.js" type="module"></script>
+</body>
+</html>
