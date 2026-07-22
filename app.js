@@ -97,9 +97,8 @@ function shell(inner) {
 function viewLogin() {
   app.innerHTML = `
     <div class="login-wrap"><div class="card login-card">
-      <p class="wordmark" style="margin:0 0 4px">44<span>i</span></p>
       <h1 style="font-size:19px;margin-bottom:2px">Website intake portal</h1>
-      <p class="subhead">Team access only. Sign in with your 44i account.</p>
+      <p class="subhead">Team access only.</p>
       <form id="loginform">
         <div class="fld"><label for="email">Email</label>
           <input id="email" type="email" autocomplete="username" required /></div>
@@ -372,15 +371,17 @@ async function viewForm(id) {
       // Trello card server-side. Poll briefly for the card link to confirm.
       await db.from("intakes").update({ status: "designer_ready" }).eq("id", id);
       let cardUrl = null;
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         await new Promise((r) => setTimeout(r, 2000));
-        const { data: row } = await db.from("intakes").select("trello_card_url").eq("id", id).single();
+        const { data: row } = await db.from("intakes").select("trello_card_url, data").eq("id", id).single();
+        if (row?.data?.trello_error) {
+          alert("Handoff saved, but the Trello card failed:\n\n" + row.data.trello_error + "\n\nFix the issue, then edit any field on the intake to retry automatically.");
+          break;
+        }
         if (row?.trello_card_url) { cardUrl = row.trello_card_url; break; }
         b.textContent = "Creating Trello card…";
       }
-      if (!cardUrl) {
-        alert("Handoff saved. The Trello card is still being created — check the record page in a moment; if no card link appears, edit any field to retry.");
-      }
+      if (cardUrl === null && !$(".modal-overlay")) { /* error already alerted or still pending */ }
       location.hash = `#/intake/${id}`;
     };
   }
