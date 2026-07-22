@@ -62,8 +62,8 @@ button { font-family: inherit; }
 
 .fld { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 12px; }
 .fld .seg { align-self: flex-start; }  /* segmented controls size to content, never stretch */
-.fld label { font-size: 13px; font-weight: 600; }
-.fld .hint { font-size: 12px; color: var(--ink-faint); }
+
+
 
 input[type="text"], input[type="email"], input[type="date"], input[type="password"], select { height: 38px; }
 input[type="text"], input[type="email"], input[type="date"], input[type="password"],
@@ -87,10 +87,7 @@ input:focus, textarea:focus, select:focus {
 .badge.cond { background: var(--field-tint); color: var(--field-deep); }
 
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
-.seg button {
-  border: none; background: transparent; font-size: 13px; padding: 6px 13px;
-  color: var(--ink-soft); cursor: pointer;
-}
+
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--field-tint); color: var(--field-deep); font-weight: 600; }
 
@@ -152,8 +149,7 @@ input:focus, textarea:focus, select:focus {
 
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .login-card { width: 100%; max-width: 380px; }
-.wordmark { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
-.wordmark { color: #000; }
+.wordmark { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: #000; }
 .wordmark span { color: #000; }
 
 .activity { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0; }
@@ -174,7 +170,7 @@ input:focus, textarea:focus, select:focus {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.seg.big button { padding: 7px 14px; font-size: 13.5px; font-weight: 600; }
+
 .producer-block {
   background: var(--field-tint); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 14px 16px; margin: 0 0 16px;

@@ -1,3 +1,6 @@
+const BUILD = "2026-07-22b";
+console.log("intake portal build", BUILD);
+
 /* 44i intake portal — plain JS, no build step.
    Views: #/ (list) · #/intake/{id} (record) · #/intake/{id}/edit (form)
    State lives in JS variables; the DOM is rendered once per view and
@@ -63,13 +66,29 @@ async function loadProfile() {
   }
 }
 
-function route() {
+async function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const up = parts.indexOf("upload");
   const onUpload = up > -1 && !!parts[up + 1];
-  if (CONFIG.REQUIRE_LOGIN && session?.user?.is_anonymous && !onUpload) return viewLogin();
+  if (onUpload) {
+    // Client upload pages NEVER show the team login. No session? Create the
+    // invisible anonymous one right here; if that fails, explain kindly.
+    if (!session) {
+      const { data: anon } = await db.auth.signInAnonymously();
+      session = anon?.session ?? null;
+    }
+    if (!session) {
+      app.innerHTML = `<div class="login-wrap"><div class="card login-card">
+        <h1 style="font-size:18px">Uploads are temporarily unavailable</h1>
+        <p class="subhead">Please try again in a few minutes, or reply to the person who sent you this link — they can collect your files directly.</p>
+        <p class="hint" style="font-size:10.5px;color:var(--ink-faint)">build ${BUILD}</p>
+      </div></div>`;
+      return;
+    }
+    return viewClientUpload(parts[up + 1]);
+  }
+  if (CONFIG.REQUIRE_LOGIN && session?.user?.is_anonymous) return viewLogin();
   if (!session) return viewLogin();
-  if (onUpload) return viewClientUpload(parts[up + 1]);
   if (parts[0] === "intake" && parts[1] && parts[2] === "edit") return viewForm(parts[1]);
   if (parts[0] === "intake" && parts[1]) return viewDetail(parts[1]);
   return viewList();
@@ -99,6 +118,7 @@ function viewLogin() {
     <div class="login-wrap"><div class="card login-card">
       <h1 style="font-size:19px;margin-bottom:2px">Website intake portal</h1>
       <p class="subhead">Team access only.</p>
+      <p class="hint" style="font-size:10.5px;color:var(--ink-faint)">build ${BUILD}</p>
       <form id="loginform">
         <div class="fld"><label for="email">Email</label>
           <input id="email" type="email" autocomplete="username" required /></div>
@@ -133,6 +153,7 @@ async function viewList() {
         <button data-s="designer_ready">Designer-ready</button>
       </div>
       <select id="amfilter" style="width:auto;min-width:150px"><option value="">All AMs</option></select>
+      <button class="btn small" id="syscheck" title="Verify Trello, AI, and client-link configuration">System check</button>
       <button class="btn primary" id="newintake">New intake</button>
     </div>
     <div class="rowlist" id="list"><div class="row" style="cursor:default"><span class="meta">Loading…</span></div></div>`);
@@ -162,7 +183,8 @@ async function viewList() {
 
   function render() {
     const term = ($("#q").value || "").toLowerCase();
-    const visible = rows.filter((r) => r.client_name.toLowerCase().includes(term) &&
+    const visible = rows.filter((r) => r.client_name !== "⚙ System Check" &&
+      r.client_name.toLowerCase().includes(term) &&
       (!amSel || (r.data?.am_name || "") === amSel));
     $("#list").innerHTML = visible.length ? visible.map((r) => `
       <a class="row" href="#/intake/${r.id}">
@@ -188,6 +210,60 @@ async function viewList() {
     b.classList.add("on");
     status = b.dataset.s;
     load();
+  };
+  $("#syscheck").onclick = async () => {
+    const b = $("#syscheck");
+    busy(b, "Checking…");
+    const local = [];
+    local.push({ name: "App build", ok: true, detail: "running " + BUILD });
+
+    // THE ELLIPSE TEST: a real anonymous sign-in, exactly as a client's
+    // browser performs it on an upload link.
+    try {
+      const probe = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+      const { data: an, error } = await probe.auth.signInAnonymously();
+      local.push({ name: "Client upload links (anonymous sign-in)", ok: !!an?.session && !error,
+        detail: an?.session ? "clients land straight on the upload page — no login prompt"
+          : (error?.message || "failed") + " → Authentication › Sign In / Up › turn ON anonymous sign-ins" });
+      if (an?.session) await probe.auth.signOut();
+    } catch (e) { local.push({ name: "Client upload links (anonymous sign-in)", ok: false, detail: String(e) }); }
+
+    // server-side checks ride the webhook like everything else
+    let server = null;
+    try {
+      let { data: rows } = await db.from("intakes").select("id, data").eq("client_name", "⚙ System Check").limit(1);
+      let di = rows?.[0];
+      if (!di) {
+        const { data: created } = await db.from("intakes")
+          .insert({ client_name: "⚙ System Check", status: "draft", data: {} }).select().single();
+        di = created;
+      }
+      local.push({ name: "Database write (webhook trigger)", ok: !!di, detail: di ? "ok" : "could not create the check record" });
+      if (di) {
+        await db.from("intakes").update({ data: { ...(di.data || {}), diag_run: true, diag_results: null } }).eq("id", di.id);
+        try { await db.rpc("get_upload_info", { iid: di.id }); local.push({ name: "Upload page lookup (RPC)", ok: true, detail: "ok" }); }
+        catch (e) { local.push({ name: "Upload page lookup (RPC)", ok: false, detail: "get_upload_info missing — rerun the gate SQL" }); }
+        for (let i = 0; i < 12; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const { data: row } = await db.from("intakes").select("data").eq("id", di.id).single();
+          if (row && row.data.diag_run !== true) { server = row.data.diag_results; break; }
+        }
+      }
+    } catch (e) { local.push({ name: "Database write", ok: false, detail: String(e).slice(0, 140) }); }
+
+    const checks = [...local, ...(server?.checks ??
+      [{ name: "Server checks (Trello, AI)", ok: false, detail: "no response — is the latest handoff function deployed, and the handoff_webhook trigger alive?" }])];
+    idle(b, "System check");
+    const ov = document.createElement("div");
+    ov.className = "modal-overlay";
+    ov.innerHTML = `<div class="modal" style="max-width:560px">
+      <h2 style="margin:0 0 10px">System check ${checks.every((c) => c.ok) ? "— all clear ✅" : "— action needed"}</h2>
+      ${checks.map((c) => `<p style="font-size:13.5px;margin:0 0 8px">${c.ok ? "✅" : "❌"} <strong>${h(c.name)}</strong><br />
+        <span style="color:var(--ink-soft);font-size:12.5px">${h(c.detail)}</span></p>`).join("")}
+      <div style="display:flex;justify-content:flex-end"><button class="btn" id="sysclose">Close</button></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector("#sysclose").onclick = () => ov.remove();
+    ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   };
   $("#newintake").onclick = async () => {
     const { data, error } = await db.from("intakes")
