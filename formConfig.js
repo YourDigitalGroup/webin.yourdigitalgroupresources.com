@@ -17,6 +17,24 @@ const is5or10 = (pkg) => /-(5|10)$/.test(pkg || "");
 const is10 = (pkg) => /-10$/.test(pkg || "");
 const isMonthly = (pkg) => /^monthly-/.test(pkg || "");
 
+// --- Pages: how many the package includes, and which rows are filled in ---
+const pageCount = (pkg) => +((pkg || "").match(/-(\d+)$/) || [])[1] || 0;
+// Named pages within the package: [{ n, name, purpose }]
+function pageRows(data) {
+  const rows = [];
+  for (let n = 1; n <= pageCount(data.package); n++) {
+    const name = String(data["page_" + n + "_name"] ?? "").trim();
+    if (name) rows.push({ n, name, purpose: String(data["page_" + n + "_purpose"] ?? "").trim() });
+  }
+  return rows;
+}
+// Content ownership, per page and per content item.
+const OWNER_OPTS = ["Client provides", "44i writes", "Needs work"];
+// "Needs work" = client has partial material and 44i produces the final copy,
+// so it behaves like 44i-owned everywhere (statuses, drafting, generation).
+const ownerIs44i = (o) => o === "44i writes" || o === "Needs work";
+const stockNeeded = (pkg, d) => (d?.photo_source === "Needs stock" || d?.photo_source === "Mix of both");
+
 // From the package grid in the KOC intake doc — drives the Section 08
 // checklist AND the Trello build checklist created on handoff.
 const PACKAGE_FEATURES = {
@@ -37,9 +55,13 @@ function buildChecklist(data) {
   if (is10(pkg)) items.push(...PACKAGE_FEATURES.ten);
   if (isMonthly(pkg)) items.push(...PACKAGE_FEATURES.monthly);
   if (data.chatbot === "Yes") items.push("AI ChatBot");
+  if (stockNeeded(pkg, data)) items.push("Source stock photography" + (data.stock_needs ? `: ${data.stock_needs}` : ""));
   // outstanding content = collection tasks for the build
+  for (const pg of pageRows(data)) {
+    if (data["page_status_" + pg.n] === "Requested") items.push(`Collect: ${pg.name} page content`);
+  }
   for (const c of CONTENT_ITEMS) {
-    if (c.cond && !c.cond(pkg)) continue;
+    if (c.cond && !c.cond(pkg, data)) continue;
     if (data["content_" + c.label] === "Requested") items.push(`Collect: ${c.label}`);
   }
   return items.filter(Boolean);
@@ -154,26 +176,55 @@ const SECTIONS = [
         type: "segmented", options: ["Yes", "No", "Not sure"], req: true,
         hint: "If 'no' or 'not sure', we can't reuse them." },
       { id: "video_link", label: "Video link (YouTube / Vimeo / Drive)", type: "text", cond: is5or10, tag: "5/10-page" },
-      { id: "photo_plan", label: "Photo plan if none exist", type: "text" },
+      { id: "photo_source", label: "Photos for the site", type: "segmented", req: true,
+        options: ["Client providing", "Needs stock", "Mix of both"],
+        hint: "If stock is involved, the design team plans for image selection on day one." },
+      { id: "stock_needs", label: "Stock photography — subjects or style needed", type: "text",
+        cond: stockNeeded, tag: "stock",
+        hint: "e.g. crew at work, storefront, before/afters, lifestyle shots of the ideal customer." },
     ],
   },
   {
-    num: "08", title: "Content inventory and status",
-    sub: "Decide who produces the copy first — every row below adapts to that answer.",
-    checklist: true,  // rows come from CONTENT_ITEMS below, filtered by package
+    num: "08", title: "Pages",
+    sub: "Name every page in the package and what it's for — the site's structure, decided on the call. Content ownership per page is set in the next section.",
     fields: [
-      { id: "copy_producer", label: "Is 44i producing the copy, or is content client-supplied?", type: "segmented", req: true,
-        options: ["Client supplies", "44i writes it"],
-        hint: "The biggest timeline assumption on the project — every row below adapts to this answer." },
+      { id: "page_1_name", label: "Page 1 — name", type: "text", req: true, half: true, hint: "Usually Home." },
+      { id: "page_1_purpose", label: "Purpose", type: "text", half: true, hint: "One line — what this page is for." },
+      { id: "page_2_name", label: "Page 2 — name", type: "text", half: true, cond: is5or10, tag: "5/10-page" },
+      { id: "page_2_purpose", label: "Purpose", type: "text", half: true, cond: is5or10 },
+      { id: "page_3_name", label: "Page 3 — name", type: "text", half: true, cond: is5or10, tag: "5/10-page" },
+      { id: "page_3_purpose", label: "Purpose", type: "text", half: true, cond: is5or10 },
+      { id: "page_4_name", label: "Page 4 — name", type: "text", half: true, cond: is5or10, tag: "5/10-page" },
+      { id: "page_4_purpose", label: "Purpose", type: "text", half: true, cond: is5or10 },
+      { id: "page_5_name", label: "Page 5 — name", type: "text", half: true, cond: is5or10, tag: "5/10-page" },
+      { id: "page_5_purpose", label: "Purpose", type: "text", half: true, cond: is5or10 },
+      { id: "page_6_name", label: "Page 6 — name", type: "text", half: true, cond: is10, tag: "10-page" },
+      { id: "page_6_purpose", label: "Purpose", type: "text", half: true, cond: is10 },
+      { id: "page_7_name", label: "Page 7 — name", type: "text", half: true, cond: is10, tag: "10-page" },
+      { id: "page_7_purpose", label: "Purpose", type: "text", half: true, cond: is10 },
+      { id: "page_8_name", label: "Page 8 — name", type: "text", half: true, cond: is10, tag: "10-page" },
+      { id: "page_8_purpose", label: "Purpose", type: "text", half: true, cond: is10 },
+      { id: "page_9_name", label: "Page 9 — name", type: "text", half: true, cond: is10, tag: "10-page" },
+      { id: "page_9_purpose", label: "Purpose", type: "text", half: true, cond: is10 },
+      { id: "page_10_name", label: "Page 10 — name", type: "text", half: true, cond: is10, tag: "10-page" },
+      { id: "page_10_purpose", label: "Purpose", type: "text", half: true, cond: is10 },
+      { id: "additional_pages", label: "Additional pages requested beyond the package", type: "textarea",
+        hint: "Anything the client wants past what was sold — flag it for the AE as an upsell conversation." },
     ],
   },
   {
-    num: "09", title: "FAQs", faqs: true,
+    num: "09", title: "Content inventory and status",
+    sub: "Who produces the copy, page by page — set the pages in Section 08 first. \"Needs work\" = client has partial material, 44i writes the final copy.",
+    checklist: true,  // rows come from the named pages + CONTENT_ITEMS below
+    fields: [],
+  },
+  {
+    num: "10", title: "FAQs", faqs: true,
     sub: "10-20 real pre-purchase questions written the way a customer would type or speak them, each with a direct one- to two-sentence answer. This is the biggest AEO lever.",
     fields: [],
   },
   {
-    num: "10", title: "Domain, hosting and access", sensitive: true,
+    num: "11", title: "Domain, hosting and access", sensitive: true,
     sub: "Sensitive — handle with care. These fields ride to the Trello card on handoff.",
     fields: [
       { id: "existing_url", label: "Existing website URL (or 'none / new build')", type: "text", req: true, half: true },
@@ -191,7 +242,7 @@ const SECTIONS = [
     ],
   },
   {
-    num: "11", title: "Pre-launch details",
+    num: "12", title: "Pre-launch details",
     sub: "Locked in before go-live.",
     fields: [
       { id: "final_domain", label: "Confirm final domain", type: "text", half: true },
@@ -201,17 +252,16 @@ const SECTIONS = [
       { id: "cms_access_people", label: "Who needs CMS access post-launch?", type: "textarea", req: true,
         hint: "First name, last name, email — per person." },
       { id: "launch_date", label: "Launch date target / hard deadline?", type: "text", rec: true },
+      { id: "general_comments", label: "General comments", type: "textarea", rec: true,
+        hint: "Design, functionality, or special requests that don't fit elsewhere — rides to the Trello card as 'Notes from the call'." },
     ],
   },
 ];
 
-// Section 08 rows. cond hides rows not in the sold package ("skip rows
-// not in the package" per the intake doc).
+// Non-page content tracked alongside the per-page rows. Page copy itself
+// is inventoried per page (from Section 08), not here.
 const CONTENT_ITEMS = [
-  { label: "About Us / company story" },
   { label: "Team bios + headshots" },
-  { label: "Service descriptions (copy)" },
-  { label: "Product info + images" },
   { label: "Testimonials", cond: is5or10, tag: "5/10-page" },
   { label: "Legal/policy pages" },
   { label: "Pricing (if shown publicly)" },
@@ -229,7 +279,7 @@ function allRequiredFields(data) {
   for (const s of SECTIONS) {
     for (const f of s.fields) {
       if (!f.req) continue;
-      if (f.cond && !f.cond(data.package)) continue;
+      if (f.cond && !f.cond(data.package, data)) continue;
       out.push(f);
     }
   }

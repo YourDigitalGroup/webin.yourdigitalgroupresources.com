@@ -1,4 +1,4 @@
-const BUILD = "2026-07-23a";
+const BUILD = "2026-07-23b";
 console.log("intake portal build", BUILD);
 
 /* ---------- upload helpers (shared by team form + client page) ----------
@@ -330,7 +330,7 @@ async function viewForm(id) {
   let changed = new Set();
 
   const fieldHtml = (f) => {
-    const hidden = f.cond && !f.cond(data.package);
+    const hidden = f.cond && !f.cond(data.package, data);
     const badges = `${f.req ? '<span class="badge req">REQ</span>' : ""}${f.rec ? '<span class="badge rec">REC</span>' : ""}${f.tag ? `<span class="badge cond">${h(f.tag)}</span>` : ""}`;
     const v = data[f.id] ?? "";
     let control;
@@ -413,8 +413,9 @@ async function viewForm(id) {
     data[fid] = value;
     changed.add(label || fid);
     if (fid === "company") $("#title").textContent = value.trim() || intake.client_name;
-    if (fid === "package") applyConditions();
-    if (fid === "copy_producer" || fid.startsWith("source_")) renderContent();
+    if (fid === "package") { applyConditions(); renderContent(); }
+    if (/^page_\d+_name$/.test(fid) || fid.startsWith("page_owner_") || fid.startsWith("content_owner_")) renderContent();
+    if (fid === "photo_source") applyConditions();
     if (fid === "chatbot") renderChatbot();
     if (fid === "address_zip") {
       const el = $(`[data-fid="address_zip"]`);
@@ -451,12 +452,12 @@ async function viewForm(id) {
     for (const sec of SECTIONS) for (const f of sec.fields) {
       if (!f.cond) continue;
       const wrap = $(`[data-wrap="${f.id}"]`);
-      if (wrap) wrap.style.display = f.cond(data.package) ? "" : "none";
+      if (wrap) wrap.style.display = f.cond(data.package, data) ? "" : "none";
     }
     for (const c of CONTENT_ITEMS) {
       if (!c.cond) continue;
       const wrap = $(`[data-checkwrap="${c.label}"]`);
-      if (wrap) wrap.style.display = c.cond(data.package) ? "" : "none";
+      if (wrap) wrap.style.display = c.cond(data.package, data) ? "" : "none";
     }
   }
   function updateReqBar() {
@@ -539,45 +540,63 @@ async function viewForm(id) {
 
   function renderContent() {
     const zone = $("#contentzone"); if (!zone) return;
-    const p = data.copy_producer || "";
-    const writing = p === "44i writes it";
-    zone.innerHTML = `
-      <div class="producer-block">
-        <div style="flex:1;min-width:240px">
-          <span style="font-size:14.5px;font-weight:700">Is 44i producing the copy, or is content client-supplied?<span class="badge req">REQ</span></span>
-          <div class="hint" style="font-size:12px;color:var(--ink-soft)">The biggest timeline assumption on the project — every row below adapts to this answer.</div>
-        </div>
-        <div class="seg big" data-fid="copy_producer">${["Client supplies", "44i writes it"].map((o) =>
-          `<button type="button" data-val="${o}" class="${p === o ? "on" : ""}">${o}</button>`).join("")}</div>
-      </div>
-      ${writing ? `
-      <div style="margin:0 0 14px">
-        <button class="btn primary" id="contentgen" type="button">Generate copy for all sections</button>
-        <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:10px">Grounded in their website — or competitor analysis + this form when there isn't one. Testimonials are pulled or requested, never invented.</span>
-      </div>` : ""}` +
-      CONTENT_ITEMS.map((c) => {
-        const opts = writing ? ["To write", "Drafted", "Final"] : ["Received", "Requested"];
-        const v = data["content_" + c.label];
-        return `
-        <div class="uprow" data-checkwrap="${h(c.label)}" style="${c.cond && !c.cond(data.package) ? "display:none" : ""}">
+    // Rows = the named pages from Section 08 + the non-page content items.
+    // Target keys: "page:N" and "item:Label" — the same keys the edge
+    // function's content generation understands.
+    const pages = pageRows(data);
+    const rows = [
+      ...pages.map((pg) => ({
+        key: `page:${pg.n}`, name: pg.name, sub: pg.purpose, tag: "",
+        ownerFid: `page_owner_${pg.n}`, statusFid: `page_status_${pg.n}`, draftFid: `page_draft_${pg.n}`,
+      })),
+      ...CONTENT_ITEMS.filter((c) => !c.cond || c.cond(data.package, data)).map((c) => ({
+        key: `item:${c.label}`, name: c.label,
+        sub: c.label === "Testimonials" ? "Real quotes only — pulled from their site or requested from customers" : "",
+        tag: c.tag || "",
+        ownerFid: `content_owner_${c.label}`, statusFid: `content_${c.label}`, draftFid: `draft_${c.label}`,
+      })),
+    ];
+    const owned = rows.filter((r) => ownerIs44i(data[r.ownerFid]));
+
+    const rowHtml = (r) => {
+      const owner = data[r.ownerFid] || "";
+      const writing = ownerIs44i(owner);
+      const opts = writing ? ["To write", "Drafted", "Final"] : ["Received", "Requested"];
+      const v = data[r.statusFid];
+      return `
+        <div class="uprow" data-checkwrap="${h(r.key)}">
           <div style="flex:1;min-width:0">
-            <span style="font-size:14px">${h(c.label)}${c.tag ? `<span class="badge cond">${h(c.tag)}</span>` : ""}</span>
-            ${writing && c.label === "Testimonials" ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">Real quotes only — pulled from their site or requested from customers</div>` : ""}
+            <span style="font-size:14px">${h(r.name)}${r.tag ? `<span class="badge cond">${h(r.tag)}</span>` : ""}</span>
+            ${r.sub ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">${h(r.sub)}</div>` : ""}
           </div>
-          <div class="seg" data-fid="content_${h(c.label)}">${opts.map((o) =>
-            `<button type="button" data-val="${o}" class="${v === o ? "on" : ""}">${o}</button>`).join("")}</div>
-          ${writing ? `<button class="btn small" type="button" data-draftitem="${h(c.label)}">Draft</button>` : ""}
+          <div class="seg" data-fid="${h(r.ownerFid)}">${OWNER_OPTS.map((o) =>
+            `<button type="button" data-val="${h(o)}" class="${owner === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>
+          ${owner ? `<div class="seg" data-fid="${h(r.statusFid)}">${opts.map((o) =>
+            `<button type="button" data-val="${h(o)}" class="${v === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>` : ""}
+          ${writing ? `<button class="btn small" type="button" data-draftitem="${h(r.key)}">Draft</button>` : ""}
         </div>
-        ${data["draft_" + c.label] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — review before publishing</label><textarea rows="5" data-fid="draft_${h(c.label)}">${h(data["draft_" + c.label])}</textarea>
-          <span style="margin-top:4px"><button class="btn small" type="button" data-approve="${h(c.label)}">${data["content_" + c.label] === "Final" ? "✓ Approved" : "Approve"}</button>
-          <button class="btn small" type="button" data-crw="${h(c.label)}">Rewrite</button></span>
-          <div class="coach" hidden data-ccoach="${h(c.label)}">
+        ${data[r.draftFid] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — ${h(r.name)} — review before publishing</label><textarea rows="5" data-fid="${h(r.draftFid)}">${h(data[r.draftFid])}</textarea>
+          <span style="margin-top:4px"><button class="btn small" type="button" data-approve="${h(r.key)}">${data[r.statusFid] === "Final" ? "✓ Approved" : "Approve"}</button>
+          <button class="btn small" type="button" data-crw="${h(r.key)}">Rewrite</button></span>
+          <div class="coach" hidden data-ccoach="${h(r.key)}">
             <input type="text" placeholder="Coach the rewrite — tone, angle, must-mention (optional)" style="flex:1" />
-            <button class="btn small" type="button" data-cgo="${h(c.label)}">Go</button></div></div>` : ""}`;
-      }).join("");
+            <button class="btn small" type="button" data-cgo="${h(r.key)}">Go</button></div></div>` : ""}`;
+    };
+
+    zone.innerHTML = `
+      ${!pages.length ? `<p class="hint" style="font-size:13px;color:var(--ink-soft);margin:10px 0">Name the site's pages in Section 08 first — each page gets its own ownership row here.</p>` : ""}
+      ${owned.length ? `
+      <div style="margin:10px 0 14px">
+        <button class="btn primary" id="contentgen" type="button">Generate copy for all 44i-owned pages</button>
+        <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:10px">Drafts the ${owned.length} row(s) marked "44i writes" or "Needs work" — grounded in their website, or competitor analysis + this form when there isn't one. Testimonials are pulled or requested, never invented.</span>
+      </div>` : ""}
+      ${rows.map(rowHtml).join("")}`;
+
+    const statusFidFor = (key) => key.startsWith("page:") ? `page_status_${key.slice(5)}` : `content_${key.slice(5)}`;
+    const nameFor = (key) => (rows.find((r) => r.key === key) || {}).name || key;
     $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft"));
     $$("[data-approve]", zone).forEach((b) => b.onclick = () => {
-      setField("content_" + b.dataset.approve, "Final", b.dataset.approve + " approved");
+      setField(statusFidFor(b.dataset.approve), "Final", nameFor(b.dataset.approve) + " approved");
       renderContent();
     });
     $$("[data-crw]", zone).forEach((b) => b.onclick = () => {
@@ -590,7 +609,7 @@ async function viewForm(id) {
       runContentGen(b, b.dataset.cgo, "Go");
     });
     const cg2 = $("#contentgen");
-    if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Generate copy for all sections");
+    if (cg2) cg2.onclick = () => runContentGen(cg2, null, "Generate copy for all 44i-owned pages");
   }
   function renderChatbot() {
     const zone = $("#chatbotzone"); if (!zone) return;
@@ -697,6 +716,12 @@ async function viewForm(id) {
   });
   const labelFor = (fid) => {
     for (const s of SECTIONS) for (const f of s.fields) if (f.id === fid) return f.label;
+    const pageName = (n) => String(data["page_" + n + "_name"] ?? "").trim() || `Page ${n}`;
+    let m;
+    if ((m = fid.match(/^page_owner_(\d+)$/))) return pageName(m[1]) + " ownership";
+    if ((m = fid.match(/^page_status_(\d+)$/))) return pageName(m[1]) + " status";
+    if ((m = fid.match(/^page_draft_(\d+)$/))) return "drafted copy: " + pageName(m[1]);
+    if (fid.startsWith("content_owner_")) return fid.slice(14) + " ownership";
     if (fid.startsWith("content_")) return fid.slice(8);
     if (fid.startsWith("source_")) return "copy source: " + fid.slice(7);
     if (fid.startsWith("draft_")) return "drafted copy: " + fid.slice(6);
@@ -952,19 +977,21 @@ async function viewDetail(id) {
   const totalBytes = (files || []).reduce((s, f) => s + (f.size_bytes || 0), 0);
 
   const sectionHtml = (sec) => {
-    const fields = sec.fields.filter((f) => (!f.cond || f.cond(d.package)) && String(d[f.id] ?? "").trim());
+    const fields = sec.fields.filter((f) => (!f.cond || f.cond(d.package, d)) && String(d[f.id] ?? "").trim());
     const faqs = sec.faqs ? (d.faqs || []).filter((f) => f.q || f.a) : [];
-    const checks = sec.checklist
-      ? CONTENT_ITEMS.filter((c) => (!c.cond || c.cond(d.package)) && d["content_" + c.label])
-      : [];
+    const rows = sec.checklist ? [
+      ...pageRows(d).map((pg) => ({ name: pg.name, owner: d["page_owner_" + pg.n], status: d["page_status_" + pg.n], draft: d["page_draft_" + pg.n] })),
+      ...CONTENT_ITEMS.filter((c) => !c.cond || c.cond(d.package, d))
+        .map((c) => ({ name: c.label, owner: d["content_owner_" + c.label], status: d["content_" + c.label], draft: d["draft_" + c.label] })),
+    ].filter((r) => r.owner || r.status || r.draft) : [];
     const hasFiles = sec.uploads && (files || []).length;
-    if (!fields.length && !faqs.length && !checks.length && !hasFiles) return "";
+    if (!fields.length && !faqs.length && !rows.length && !hasFiles) return "";
     return `<div class="card"><p class="secnum">SECTION ${sec.num}</p><h2>${h(sec.title)}</h2>
       <div style="margin-top:10px">
       ${hasFiles ? `<p style="font-size:13.5px"><strong>Files on record:</strong> ${
         files.map((f) => `${h(f.filename)} (${h(f.category)})`).join(" · ")}</p>` : ""}
-      ${checks.map((c) => `<p style="font-size:13.5px;margin:3px 0">${h(c.label)}: <strong>${h(d["content_" + c.label])}</strong></p>`).join("")}
-      ${sec.checklist ? CONTENT_ITEMS.filter((c) => d["draft_" + c.label]).map((c) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">Drafted copy — ${h(c.label)}</span><br /><span style="white-space:pre-wrap">${h(d["draft_" + c.label])}</span></p>`).join("") : ""}
+      ${rows.map((r) => `<p style="font-size:13.5px;margin:3px 0">${h(r.name)}: <strong>${h([r.owner, r.status].filter(Boolean).join(" · ") || "—")}</strong></p>`).join("")}
+      ${rows.filter((r) => r.draft).map((r) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">Drafted copy — ${h(r.name)}</span><br /><span style="white-space:pre-wrap">${h(r.draft)}</span></p>`).join("")}
       ${faqs.map((f, i) => `<p style="font-size:13.5px;margin:6px 0"><strong>${i + 1}. ${h(f.q)}</strong><br />${h(f.a)}</p>`).join("")}
       ${fields.map((f) => `<p style="font-size:13.5px;margin:6px 0"><span style="color:var(--ink-faint)">${h(f.label)}</span><br />
         <span style="white-space:pre-wrap">${h(d[f.id])}</span></p>`).join("")}
