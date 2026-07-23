@@ -1,4 +1,4 @@
-const BUILD = "2026-07-22d";
+const BUILD = "2026-07-22e";
 console.log("intake portal build", BUILD);
 
 /* 44i intake portal — plain JS, no build step.
@@ -245,7 +245,7 @@ async function viewList() {
       let cErr = null;
       if (!di) {
         const { data: created, error } = await db.from("intakes")
-          .insert({ client_name: "⚙ System Check", status: "draft", data: {} }).select().single();
+          .insert({ client_name: "⚙ System Check", status: "draft", data: {}, created_by: profile?.id ?? session.user.id }).select().single();
         di = created; cErr = error;
       }
       local.push({ name: "Database write (team permissions)", ok: !!di,
