@@ -1,4 +1,4 @@
-const BUILD = "2026-07-22c";
+const BUILD = "2026-07-22d";
 console.log("intake portal build", BUILD);
 
 /* 44i intake portal — plain JS, no build step.
@@ -72,15 +72,24 @@ async function route() {
   const onUpload = up > -1 && !!parts[up + 1];
   if (onUpload) {
     // Client upload pages NEVER show the team login. No session? Create the
-    // invisible anonymous one right here; if that fails, explain kindly.
+    // invisible anonymous one right here; if that fails, explain WHY.
+    let anonErr = null;
     if (!session) {
-      const { data: anon } = await db.auth.signInAnonymously();
+      const { data: anon, error } = await db.auth.signInAnonymously();
       session = anon?.session ?? null;
+      anonErr = error?.message ?? null;
     }
     if (!session) {
+      const hint = /disabled|not allowed|not enabled/i.test(anonErr || "")
+        ? "Fix: Supabase → Authentication → Sign In / Up → turn ON anonymous sign-ins."
+        : /rate|too many/i.test(anonErr || "")
+          ? "Anonymous sign-ins are rate-limited per IP (~30/hour) — heavy testing from one network hits this. Clients on their own connections are unaffected; wait an hour or test from another network."
+          : "Run the System check from the portal for a full diagnosis.";
       app.innerHTML = `<div class="login-wrap"><div class="card login-card">
         <h1 style="font-size:18px">Uploads are temporarily unavailable</h1>
         <p class="subhead">Please try again in a few minutes, or reply to the person who sent you this link — they can collect your files directly.</p>
+        <p class="hint" style="font-size:11.5px;color:var(--danger)">${h(anonErr || "no session")}</p>
+        <p class="hint" style="font-size:11.5px;color:var(--ink-soft)">${h(hint)}</p>
         <p class="hint" style="font-size:10.5px;color:var(--ink-faint)">build ${BUILD}</p>
       </div></div>`;
       return;
@@ -233,12 +242,14 @@ async function viewList() {
     try {
       let { data: rows } = await db.from("intakes").select("id, data").eq("client_name", "⚙ System Check").limit(1);
       let di = rows?.[0];
+      let cErr = null;
       if (!di) {
-        const { data: created } = await db.from("intakes")
+        const { data: created, error } = await db.from("intakes")
           .insert({ client_name: "⚙ System Check", status: "draft", data: {} }).select().single();
-        di = created;
+        di = created; cErr = error;
       }
-      local.push({ name: "Database write (webhook trigger)", ok: !!di, detail: di ? "ok" : "could not create the check record" });
+      local.push({ name: "Database write (team permissions)", ok: !!di,
+        detail: di ? "ok" : (cErr?.message || "insert failed") + " → if this mentions row-level security, your login isn't on the team allowlist (team_logins table)" });
       if (di) {
         await db.from("intakes").update({ data: { ...(di.data || {}), diag_run: true, diag_results: null } }).eq("id", di.id);
         try { await db.rpc("get_upload_info", { iid: di.id }); local.push({ name: "Upload page lookup (RPC)", ok: true, detail: "ok" }); }

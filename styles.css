@@ -86,7 +86,14 @@ input:focus, textarea:focus, select:focus {
 .badge.rec { background: var(--draft-tint); color: var(--ink-soft); }
 .badge.cond { background: var(--field-tint); color: var(--field-deep); }
 
-.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; background: #fff; }
+.seg button {
+  appearance: none; -webkit-appearance: none;
+  border: none; background: #fff; box-shadow: none;
+  padding: 7px 14px; font: inherit; font-size: 13.5px;
+  color: var(--ink-soft); cursor: pointer;
+  min-width: 72px; text-align: center;
+}
 
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--field-tint); color: var(--field-deep); font-weight: 600; }
@@ -183,8 +190,7 @@ input:focus, textarea:focus, select:focus {
 
 .fld label { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .fld .hint { font-size: 12px; color: var(--ink-faint); line-height: 1.4; }
-.seg button { min-width: 72px; text-align: center; }
-.seg.big button { min-width: 110px; }
+.seg.big button { padding: 8px 16px; font-size: 14px; font-weight: 600; min-width: 110px; }
 select { padding-top: 0; padding-bottom: 0; }
 @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
 
