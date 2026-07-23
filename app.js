@@ -1,4 +1,4 @@
-const BUILD = "2026-07-22b";
+const BUILD = "2026-07-22c";
 console.log("intake portal build", BUILD);
 
 /* 44i intake portal — plain JS, no build step.
@@ -780,6 +780,13 @@ async function viewForm(id) {
         </div>
         <button class="btn small" type="button" id="copylink">Copy link</button>
         <button class="btn small" type="button" id="refreshfiles">Refresh</button>
+      </div>
+      <div class="uprow">
+        <div style="flex:1;min-width:0">
+          <span style="font-size:14px;font-weight:600">Optional client PIN</span>
+          <div class="hint" style="font-size:12px;color:var(--ink-faint)">Blank = the link alone works. Set a PIN for sensitive clients — tell it to them on the call; the upload page will ask for it.</div>
+        </div>
+        <input type="text" data-fid="upload_pin" value="${h(data.upload_pin ?? "")}" placeholder="e.g. 4729" style="max-width:120px" />
       </div>` + ASSET_CATEGORIES.map((cat) => {
       const catFiles = files.filter((f) => f.category === cat.id);
       return `<div class="uprow">
@@ -991,8 +998,30 @@ async function viewDetail(id) {
    label — never 44i). Files land in the same bucket + intake_files rows the
    form reads, so they appear in Section 07 automatically. */
 async function viewClientUpload(id) {
-  const { data: info } = await db.rpc("get_upload_info", { iid: id });
-  const intake = info?.length ? { id, client_name: info[0].client_name, partners: { name: info[0].partner_name } } : null;
+  let pin = null;
+  let info = null;
+  const fetchInfo = async () => {
+    const { data } = await db.rpc("get_upload_info", { iid: id, pin });
+    return data?.length ? data[0] : null;
+  };
+  info = await fetchInfo();
+  while (info && info.pin_required && !info.pin_ok) {
+    // PIN gate: minimal, client-friendly, partner-branded
+    const entered = await new Promise((resolve) => {
+      app.innerHTML = `<div class="login-wrap"><div class="card login-card">
+        <h1 style="font-size:18px">Enter your upload PIN</h1>
+        <p class="subhead">${pin === null ? "Your account manager gave you a short PIN for this upload page." : "That PIN didn't match — try again, or check with your account manager."}</p>
+        <div class="fld"><input type="text" id="pinbox" inputmode="numeric" autocomplete="one-time-code" /></div>
+        <button class="btn primary" id="pingo" style="width:100%">Continue</button>
+      </div></div>`;
+      $("#pingo").onclick = () => resolve($("#pinbox").value.trim());
+      $("#pinbox").onkeydown = (e) => { if (e.key === "Enter") resolve($("#pinbox").value.trim()); };
+      $("#pinbox").focus();
+    });
+    pin = entered || "";
+    info = await fetchInfo();
+  }
+  const intake = info ? { id, client_name: info.client_name, partners: { name: info.partner_name } } : null;
   if (!intake) {
     app.innerHTML = `<div class="login-wrap"><div class="card login-card"><h1 style="font-size:18px">Link not found</h1><p class="subhead">This upload link isn't valid — please check with your account manager.</p></div></div>`;
     return;
@@ -1026,7 +1055,7 @@ async function viewClientUpload(id) {
 
   let pickCat = "other";
   async function refresh() {
-    const { data: files } = await db.from("intake_files").select("*").eq("intake_id", id).order("created_at");
+    const { data: files } = await db.rpc("list_intake_files", { iid: id, pin });
     for (const cat of ASSET_CATEGORIES) {
       const zone = $(`[data-catfiles="${cat.id}"]`);
       if (!zone) continue;
@@ -1062,10 +1091,9 @@ async function viewClientUpload(id) {
           },
           onError: () => { pct.textContent = ""; prog.innerHTML += `<span class="error">Upload failed — try again</span>`; resolve(); },
           onSuccess: async () => {
-            await db.from("intake_files").insert({
-              intake_id: id, category, filename: file.name,
-              storage_path: path, size_bytes: file.size, mime: file.type,
-              uploaded_by: profile?.id ?? null,
+            await db.rpc("record_upload", {
+              iid: id, category, filename: file.name,
+              storage_path: path, size_bytes: file.size, mime: file.type || "", pin,
             });
             prog.remove(); resolve();
           },
@@ -1073,7 +1101,7 @@ async function viewClientUpload(id) {
         up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
       });
     }
-    await logActivity(id, `Client uploaded ${list.length} file(s) to ${category}`);
+    await db.rpc("log_client_upload", { iid: id, n: list.length, category, pin });
     refresh();
   }
 
