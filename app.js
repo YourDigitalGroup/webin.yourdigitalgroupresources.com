@@ -1,5 +1,36 @@
-const BUILD = "2026-07-22e";
+const BUILD = "2026-07-23a";
 console.log("intake portal build", BUILD);
+
+/* ---------- upload helpers (shared by team form + client page) ----------
+   safeStoragePath: storage keys reject some characters (spaces, &, etc.) —
+   store under a cleaned key, keep the real filename for display.
+   tusErrorText: pull the actual server response out of a TUS failure so the
+   page reports WHY instead of a bare "try again".
+   plainUpload: non-resumable fallback — when the resumable endpoint fails,
+   this often succeeds, and when it doesn't, it returns a readable error.  */
+function safeStoragePath(intakeId, category, filename) {
+  const clean = String(filename).normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")           // strip accents
+    .replace(/[^A-Za-z0-9._-]+/g, "_")          // spaces, &, quotes, etc. → _
+    .replace(/_+/g, "_").replace(/^[_\.]+/, "") // tidy
+    .slice(-140) || "file";
+  return `${intakeId}/${category}/${Date.now()}-${clean}`;
+}
+function tusErrorText(err) {
+  try {
+    const res = err?.originalResponse;
+    const status = res?.getStatus ? res.getStatus() : "";
+    let body = res?.getBody ? String(res.getBody()).slice(0, 300) : "";
+    try { const j = JSON.parse(body); body = j.message || j.error || body; } catch (_) {}
+    return [status && `HTTP ${status}`, body || (err?.message || String(err)).slice(0, 300)]
+      .filter(Boolean).join(" — ");
+  } catch (_) { return String(err).slice(0, 300); }
+}
+async function plainUpload(path, file) {
+  const { error } = await db.storage.from(CONFIG.BUCKET)
+    .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: true });
+  return error ? (error.message || String(error)) : null;
+}
 
 /* 44i intake portal — plain JS, no build step.
    Views: #/ (list) · #/intake/{id} (record) · #/intake/{id}/edit (form)
@@ -838,7 +869,7 @@ async function viewForm(id) {
   async function uploadFiles(list, category) {
     const { data: { session: s } } = await db.auth.getSession();
     for (const file of list) {
-      const path = `${id}/${category}/${Date.now()}-${file.name}`;
+      const path = safeStoragePath(id, category, file.name);
       const prog = document.createElement("div");
       prog.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0";
       prog.innerHTML = `<span style="font-size:12.5px;flex:1">${h(file.name)}</span>
@@ -847,6 +878,23 @@ async function viewForm(id) {
       $("#progresszone").appendChild(prog);
       const bar = prog.querySelector(".reqbar > div");
       const pct = prog.querySelector("span:last-child");
+
+      const record = async () => {
+        const { error } = await db.from("intake_files").insert({
+          intake_id: id, category, filename: file.name,
+          storage_path: path, size_bytes: file.size, mime: file.type,
+          uploaded_by: profile.id,
+        });
+        if (error) {
+          prog.innerHTML += `<span class="error">Stored, but couldn't record it: ${h(error.message || error)}</span>`;
+          return false;
+        }
+        prog.remove(); return true;
+      };
+      const fail = (why) => {
+        pct.textContent = "";
+        prog.innerHTML += `<span class="error">Upload failed: ${h(why)}</span>`;
+      };
 
       await new Promise((resolve) => {
         const upload = new tus.Upload(file, {
@@ -861,15 +909,16 @@ async function viewForm(id) {
             const p = Math.round((sent / total) * 100);
             bar.style.width = p + "%"; pct.textContent = p + "%";
           },
-          onError: () => { pct.textContent = ""; prog.innerHTML += `<span class="error">Upload failed — try again</span>`; resolve(); },
-          onSuccess: async () => {
-            await db.from("intake_files").insert({
-              intake_id: id, category, filename: file.name,
-              storage_path: path, size_bytes: file.size, mime: file.type,
-              uploaded_by: profile.id,
-            });
-            prog.remove(); resolve();
+          onError: async (err) => {
+            // Resumable path failed — fall back to a plain upload, which
+            // succeeds in several cases where resumable doesn't and returns
+            // a readable error when it can't.
+            const plainErr = await plainUpload(path, file);
+            if (!plainErr) { await record(); resolve(); return; }
+            fail(`${tusErrorText(err)} (retry without resume: ${plainErr})`);
+            resolve();
           },
+          onSuccess: async () => { await record(); resolve(); },
         });
         upload.findPreviousUploads().then((prev) => {
           if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
@@ -1078,7 +1127,7 @@ async function viewClientUpload(id) {
   async function uploadFiles(list, category) {
     const { data: { session: s } } = await db.auth.getSession();
     for (const file of list) {
-      const path = `${id}/${category}/${Date.now()}-${file.name}`;
+      const path = safeStoragePath(id, category, file.name);
       const prog = document.createElement("div");
       prog.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0";
       prog.innerHTML = `<span style="font-size:12.5px;flex:1">${h(file.name)}</span>
@@ -1087,6 +1136,21 @@ async function viewClientUpload(id) {
       $("#progresszone").appendChild(prog);
       const bar = prog.querySelector(".reqbar > div");
       const pct = prog.querySelector("span:last-child");
+      const record = async () => {
+        const { error } = await db.rpc("record_upload", {
+          iid: id, category, filename: file.name,
+          storage_path: path, size_bytes: file.size, mime: file.type || "", pin,
+        });
+        if (error) {
+          prog.innerHTML += `<span class="error">Uploaded, but couldn't be recorded: ${h(error.message || error)} — tell your account manager.</span>`;
+          return;
+        }
+        prog.remove();
+      };
+      const fail = (why) => {
+        pct.textContent = "";
+        prog.innerHTML += `<span class="error">Upload failed: ${h(why)}</span>`;
+      };
       await new Promise((resolve) => {
         const up = new tus.Upload(file, {
           endpoint: `${CONFIG.SUPABASE_URL}/storage/v1/upload/resumable`,
@@ -1100,14 +1164,13 @@ async function viewClientUpload(id) {
             const p = Math.round((sent / total) * 100);
             bar.style.width = p + "%"; pct.textContent = p + "%";
           },
-          onError: () => { pct.textContent = ""; prog.innerHTML += `<span class="error">Upload failed — try again</span>`; resolve(); },
-          onSuccess: async () => {
-            await db.rpc("record_upload", {
-              iid: id, category, filename: file.name,
-              storage_path: path, size_bytes: file.size, mime: file.type || "", pin,
-            });
-            prog.remove(); resolve();
+          onError: async (err) => {
+            const plainErr = await plainUpload(path, file);
+            if (!plainErr) { await record(); resolve(); return; }
+            fail(`${tusErrorText(err)} (retry without resume: ${plainErr})`);
+            resolve();
           },
+          onSuccess: async () => { await record(); resolve(); },
         });
         up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
       });
