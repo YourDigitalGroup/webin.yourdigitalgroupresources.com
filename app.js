@@ -1,5 +1,25 @@
-const BUILD = "2026-07-23b";
+const BUILD = "2026-07-23c";
 console.log("intake portal build", BUILD);
+
+// Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
+// this file's BUILD. If a browser cached one file and fetched the other fresh
+// (the July 23 "phantom required field" incident), the two files disagree on
+// the form's shape — refuse to run and tell the user to reload instead.
+const CONFIG_IN_SYNC = (typeof FORMCONFIG_BUILD !== "undefined") && FORMCONFIG_BUILD === BUILD;
+function showSkewScreen() {
+  document.getElementById("app").innerHTML = `
+    <div style="max-width:460px;margin:120px auto;text-align:center;font-family:Manrope,sans-serif">
+      <h2 style="margin:0 0 10px">A new version is available</h2>
+      <p style="color:#666;font-size:14px;line-height:1.5;margin:0 0 18px">
+        Your browser loaded part of an older version of this portal.
+        Reload to get the current one — no work is lost, everything saves as you type.</p>
+      <button class="btn primary" style="padding:10px 22px;font-size:14px;cursor:pointer"
+        onclick="location.reload()">Reload the portal</button>
+      <p style="color:#999;font-size:12px;margin-top:14px">
+        If this message comes back after reloading, do a hard refresh:
+        Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac).</p>
+    </div>`;
+}
 
 /* ---------- upload helpers (shared by team form + client page) ----------
    safeStoragePath: storage keys reject some characters (spaces, &, etc.) —
@@ -61,6 +81,7 @@ async function logActivity(intakeId, action) {
 
 /* ---------- boot + router ---------- */
 (async function boot() {
+  if (!CONFIG_IN_SYNC) { showSkewScreen(); return; }
   const { data } = await db.auth.getSession();
   session = data.session;
   const isUploadRoute = () => location.hash.includes("/upload/");

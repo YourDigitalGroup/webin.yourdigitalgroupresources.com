@@ -2,6 +2,11 @@
 // The form renders from this config, so adding a field = adding a line here.
 // types: text | textarea | email | select | segmented | date
 
+// Version handshake — must match BUILD in app.js. If a browser ever loads a
+// cached copy of one file with a fresh copy of the other, app.js detects the
+// mismatch and shows a reload screen instead of half-running.
+const FORMCONFIG_BUILD = "2026-07-23c";
+
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
   { value: "onetime-5", label: "One-time · 5-page" },
