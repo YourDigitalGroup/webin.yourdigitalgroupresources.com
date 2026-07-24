@@ -1,4 +1,4 @@
-const BUILD = "2026-07-24a";
+const BUILD = "2026-07-24d";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -97,8 +97,13 @@ function draftText(v) {
 }
 function normalizeDrafts(d) {
   for (const k of Object.keys(d || {})) {
-    if ((/^page_draft_\d+$/.test(k) || k.startsWith("draft_")) && d[k] != null && typeof d[k] !== "string")
-      d[k] = draftText(d[k]);
+    if (!/^page_draft_\d+$/.test(k) && !k.startsWith("draft_")) continue;
+    if (d[k] != null && typeof d[k] !== "string") d[k] = draftText(d[k]);
+    // A pre-fix session may have SAVED the literal text "[object Object]"
+    // back into the draft (the textarea's broken value written into data).
+    // That string is unrecoverable garbage — clear it so the row returns to
+    // its pre-draft state and the Draft button regenerates clean copy.
+    if (typeof d[k] === "string" && /\[object Object\]/.test(d[k])) d[k] = "";
   }
   return d;
 }
@@ -612,38 +617,71 @@ async function viewForm(id) {
       const writing = ownerIs44i(owner);
       const opts = writing ? ["To write", "Drafted", "Final"] : ["Received", "Requested"];
       const v = data[r.statusFid];
+      const seg = (fid, options, cur) => `<div class="seg" data-fid="${h(fid)}">${options.map((o) =>
+        `<button type="button" data-val="${h(o)}" class="${cur === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>`;
       return `
-        <div class="uprow" data-checkwrap="${h(r.key)}">
-          <div style="flex:1;min-width:0">
-            <span style="font-size:14px">${h(r.name)}${r.tag ? `<span class="badge cond">${h(r.tag)}</span>` : ""}</span>
-            ${r.sub ? `<div class="hint" style="font-size:11.5px;color:var(--ink-faint)">${h(r.sub)}</div>` : ""}
+        <div class="c9row" data-checkwrap="${h(r.key)}">
+          <div class="c9head">
+            <span class="c9name">${h(r.name)}${r.tag ? `<span class="badge cond">${h(r.tag)}</span>` : ""}</span>
+            ${r.sub ? `<span class="c9sub">${h(r.sub)}</span>` : ""}
           </div>
-          <div class="seg" data-fid="${h(r.ownerFid)}">${OWNER_OPTS.map((o) =>
-            `<button type="button" data-val="${h(o)}" class="${owner === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>
-          ${owner ? `<div class="seg" data-fid="${h(r.statusFid)}">${opts.map((o) =>
-            `<button type="button" data-val="${h(o)}" class="${v === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>` : ""}
-          ${writing ? `<button class="btn small" type="button" data-draftitem="${h(r.key)}">Draft</button>` : ""}
-        </div>
-        ${data[r.draftFid] ? `<div class="fld" style="margin-top:8px"><label style="font-size:12px;color:var(--ink-faint)">Drafted copy — ${h(r.name)} — review before publishing</label><textarea rows="5" data-fid="${h(r.draftFid)}">${h(data[r.draftFid])}</textarea>
-          <span style="margin-top:4px"><button class="btn small" type="button" data-approve="${h(r.key)}">${data[r.statusFid] === "Final" ? "✓ Approved" : "Approve"}</button>
-          <button class="btn small" type="button" data-crw="${h(r.key)}">Rewrite</button></span>
-          <div class="coach" hidden data-ccoach="${h(r.key)}">
-            <input type="text" placeholder="Coach the rewrite — tone, angle, must-mention (optional)" style="flex:1" />
-            <button class="btn small" type="button" data-cgo="${h(r.key)}">Go</button></div></div>` : ""}`;
+          <div class="c9controls">
+            <div class="c9group"><span class="c9label">Who produces it</span>${seg(r.ownerFid, OWNER_OPTS, owner)}</div>
+            ${owner
+              ? `<div class="c9group"><span class="c9label">Status</span>${seg(r.statusFid, opts, v)}</div>`
+              : `<span class="c9nudge">Choose who produces it to set a status</span>`}
+            ${writing ? `<button class="btn small c9draftbtn" type="button" data-draftitem="${h(r.key)}">${data[r.draftFid] ? "Redraft" : "Draft with AI"}</button>` : ""}
+          </div>
+          ${data[r.draftFid] ? `
+          <div class="c9draft">
+            <div class="c9drafthead">
+              <span class="c9draftlabel">Drafted copy — review before publishing</span>
+              <button class="btn small" type="button" data-approve="${h(r.key)}">${data[r.statusFid] === "Final" ? "✓ Approved" : "Approve"}</button>
+              <button class="btn small" type="button" data-crw="${h(r.key)}">Rewrite</button>
+            </div>
+            <textarea rows="6" data-fid="${h(r.draftFid)}">${h(data[r.draftFid])}</textarea>
+            <div class="coach" hidden data-ccoach="${h(r.key)}">
+              <input type="text" placeholder="Coach the rewrite — tone, angle, must-mention (optional)" style="flex:1" />
+              <button class="btn small" type="button" data-cgo="${h(r.key)}">Go</button>
+            </div>
+          </div>` : ""}
+        </div>`;
     };
 
+    // Scoped styles for the section — ride along with the markup so the
+    // layout can never desync from a stale styles.css.
+    const c9css = `<style>
+      .c9row{border:1px solid var(--line,#e5e3df);border-radius:10px;padding:14px 16px;margin:10px 0;background:var(--card,#fff)}
+      .c9head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+      .c9name{font-size:14.5px;font-weight:600}
+      .c9sub{font-size:12px;color:var(--ink-faint,#8a8a8a)}
+      .c9controls{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-top:12px}
+      .c9group{display:flex;flex-direction:column;gap:5px}
+      .c9label{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint,#8a8a8a)}
+      .c9nudge{font-size:12px;color:var(--ink-faint,#8a8a8a);align-self:center;font-style:italic}
+      .c9draftbtn{margin-left:auto}
+      .c9draft{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line,#e5e3df)}
+      .c9drafthead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+      .c9draftlabel{font-size:12px;color:var(--ink-faint,#8a8a8a);margin-right:auto}
+      .c9draft textarea{width:100%;box-sizing:border-box}
+      .c9draft .coach{margin-top:8px}
+      .c9genwrap{margin:12px 0 16px}
+      .c9genhint{display:block;margin-top:7px;font-size:12px;color:var(--ink-faint,#8a8a8a);max-width:640px}
+    </style>`;
+
     zone.innerHTML = `
+      ${c9css}
       ${!pages.length ? `<p class="hint" style="font-size:13px;color:var(--ink-soft);margin:10px 0">Name the site's pages in Section 08 first — each page gets its own ownership row here.</p>` : ""}
       ${owned.length ? `
-      <div style="margin:10px 0 14px">
+      <div class="c9genwrap">
         <button class="btn primary" id="contentgen" type="button">Generate copy for all 44i-owned pages</button>
-        <span class="hint" style="font-size:12px;color:var(--ink-faint);margin-left:10px">Drafts the ${owned.length} row(s) marked "44i writes" or "Needs work" — grounded in their website, or competitor analysis + this form when there isn't one. Testimonials are pulled or requested, never invented.</span>
+        <span class="hint c9genhint">Drafts the ${owned.length} row(s) marked "44i writes" or "Needs work" — grounded in their website, or competitor analysis + this form when there isn't one. Testimonials are pulled or requested, never invented.</span>
       </div>` : ""}
       ${rows.map(rowHtml).join("")}`;
 
     const statusFidFor = (key) => key.startsWith("page:") ? `page_status_${key.slice(5)}` : `content_${key.slice(5)}`;
     const nameFor = (key) => (rows.find((r) => r.key === key) || {}).name || key;
-    $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, "Draft"));
+    $$("[data-draftitem]", zone).forEach((b) => b.onclick = () => runContentGen(b, b.dataset.draftitem, b.textContent));
     $$("[data-approve]", zone).forEach((b) => b.onclick = () => {
       setField(statusFidFor(b.dataset.approve), "Final", nameFor(b.dataset.approve) + " approved");
       renderContent();
