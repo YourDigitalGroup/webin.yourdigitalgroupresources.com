@@ -1,4 +1,4 @@
-const BUILD = "2026-07-23c";
+const BUILD = "2026-07-24a";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -74,6 +74,34 @@ const initials = (n) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toU
 const statusLabel = { draft: "Draft", submitted: "Submitted", designer_ready: "Designer-ready" };
 const busy = (b, label) => { b.disabled = true; b.classList.add("working"); b.textContent = label; };
 const idle = (b, label) => { b.disabled = false; b.classList.remove("working"); b.textContent = label; };
+
+/* ---------- AI draft normalization ----------
+   The copy generator sometimes returns structured copy for the homepage
+   ({ headline, subhead, body, … }) instead of plain text. Anywhere a draft
+   enters the page, flatten it to readable text — otherwise the textarea
+   renders "[object Object]" (the July 24 Hulgans incident).              */
+function draftText(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(draftText).filter(Boolean).join("\n\n");
+  if (typeof v === "object") {
+    return Object.entries(v).map(([k, val]) => {
+      const text = draftText(val);
+      if (!text) return "";
+      // Generic wrapper keys add noise; real keys (headline, subhead…) become small headers.
+      const generic = /^(text|body|copy|content|value|paragraphs?|sections?|items?|\d+)$/i.test(k);
+      return generic ? text : k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) + ":\n" + text;
+    }).filter(Boolean).join("\n\n");
+  }
+  return String(v);
+}
+function normalizeDrafts(d) {
+  for (const k of Object.keys(d || {})) {
+    if ((/^page_draft_\d+$/.test(k) || k.startsWith("draft_")) && d[k] != null && typeof d[k] !== "string")
+      d[k] = draftText(d[k]);
+  }
+  return d;
+}
 
 async function logActivity(intakeId, action) {
   await db.from("intake_activity").insert({ intake_id: intakeId, actor: session?.user?.id, action });
@@ -346,7 +374,7 @@ async function viewForm(id) {
   ]);
   if (!intake) { location.hash = "#/"; return; }
   let partnerId = intake.partner_id || "";
-  let data = intake.data || {};
+  let data = normalizeDrafts(intake.data || {});
   let saveTimer = null;
   let changed = new Set();
 
@@ -700,7 +728,7 @@ async function viewForm(id) {
       const { data: row } = await db.from("intakes").select("data").eq("id", id).single();
       if (row && row.data.content_generate !== true) {
         if (row.data.ai_error) { data.content_generate = false; idle(b, idleLabel); alert("Content drafting failed:\n\n" + row.data.ai_error); return; }
-        data = row.data;
+        data = normalizeDrafts(row.data);
         renderContent();
         updateReqBar();
         return;
@@ -994,7 +1022,7 @@ async function viewDetail(id) {
       .eq("intake_id", id).order("created_at", { ascending: false }).limit(12),
   ]);
   if (!intake) { location.hash = "#/"; return; }
-  const d = intake.data || {};
+  const d = normalizeDrafts(intake.data || {});
   const totalBytes = (files || []).reduce((s, f) => s + (f.size_bytes || 0), 0);
 
   const sectionHtml = (sec) => {
