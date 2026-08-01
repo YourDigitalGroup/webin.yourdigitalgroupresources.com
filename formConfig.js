@@ -5,7 +5,7 @@
 // Version handshake — must match BUILD in app.js. If a browser ever loads a
 // cached copy of one file with a fresh copy of the other, app.js detects the
 // mismatch and shows a reload screen instead of half-running.
-const FORMCONFIG_BUILD = "2026-07-24d";
+const FORMCONFIG_BUILD = "2026-07-31a";
 
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
@@ -293,4 +293,36 @@ function allRequiredFields(data) {
 
 function missingRequired(data) {
   return allRequiredFields(data).filter((f) => !String(data[f.id] ?? "").trim());
+}
+
+// Handoff completeness gate (July 31 Warsaw Masonry incident): required
+// fields alone let an intake reach Trello with unnamed pages and deliverables
+// still outstanding. Nothing goes to the designer until EVERYTHING is in hand:
+//   1. every page slot in the package is named,
+//   2. every page and content item has an owner and a completed status —
+//      "Received" for client-provided rows, "Final" for 44i-owned rows,
+//   3. client photos are actually uploaded when the client is providing them.
+// The Edge Function enforces the same rules server-side before creating a card.
+function handoffBlockers(data, fileCount) {
+  const out = [];
+  const total = pageCount(data.package);
+  for (let n = 1; n <= total; n++) {
+    if (!String(data["page_" + n + "_name"] ?? "").trim()) out.push(`Page ${n} name (Section 08)`);
+  }
+  const rows = [
+    ...pageRows(data).map((pg) => ({ name: pg.name + " page", ownerFid: `page_owner_${pg.n}`, statusFid: `page_status_${pg.n}` })),
+    ...CONTENT_ITEMS.filter((c) => !c.cond || c.cond(data.package, data)).map((c) => ({
+      name: c.label, ownerFid: `content_owner_${c.label}`, statusFid: `content_${c.label}`,
+    })),
+  ];
+  for (const r of rows) {
+    const owner = String(data[r.ownerFid] ?? "").trim();
+    const status = String(data[r.statusFid] ?? "").trim();
+    if (!owner) { out.push(`${r.name} — choose who produces it`); continue; }
+    const doneStatus = ownerIs44i(owner) ? "Final" : "Received";
+    if (status !== doneStatus) out.push(`${r.name} — not ${doneStatus.toLowerCase()} yet${status ? ` (${status})` : ""}`);
+  }
+  const clientPhotos = data.photo_source === "Client providing" || data.photo_source === "Mix of both";
+  if (clientPhotos && !(fileCount > 0)) out.push("Client photos — none uploaded yet");
+  return out;
 }
