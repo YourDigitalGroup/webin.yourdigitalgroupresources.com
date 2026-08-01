@@ -1,4 +1,4 @@
-const BUILD = "2026-07-24d";
+const BUILD = "2026-07-31a";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -380,6 +380,7 @@ async function viewForm(id) {
   if (!intake) { location.hash = "#/"; return; }
   let partnerId = intake.partner_id || "";
   let data = normalizeDrafts(intake.data || {});
+  let fileCount = 0;  // client-uploaded assets — part of the handoff gate
   let saveTimer = null;
   let changed = new Set();
 
@@ -520,10 +521,14 @@ async function viewForm(id) {
     const done = all.length - missing.length;
     $("#reqcount").textContent = `${done} of ${all.length}`;
     $("#reqbar").style.width = `${Math.round((done / Math.max(all.length, 1)) * 100)}%`;
-    const gaps = [...(!partnerId ? ["White-label partner"] : []), ...missing.map((f) => f.label)];
+    const gaps = [
+      ...(!partnerId ? ["White-label partner"] : []),
+      ...missing.map((f) => f.label),
+      ...handoffBlockers(data, fileCount),
+    ];
     $("#reqmissing").textContent = gaps.length
-      ? `Missing: ${gaps.slice(0, 4).join(", ")}${gaps.length > 4 ? ` +${gaps.length - 4} more` : ""}`
-      : "All required fields complete — ready for designer handoff";
+      ? `Blocking handoff: ${gaps.slice(0, 4).join(", ")}${gaps.length > 4 ? ` +${gaps.length - 4} more` : ""}`
+      : "Everything complete — ready for designer handoff";
     renderHandoff(gaps.length);
   }
   function renderHandoff(missingCount) {
@@ -915,6 +920,8 @@ async function viewForm(id) {
   let files = [];
   async function loadFiles() {
     const { data: rows } = await db.from("intake_files").select("*").eq("intake_id", id).order("created_at");
+    fileCount = (rows || []).length;
+    updateReqBar();
     files = rows || [];
     renderUploader();
   }
