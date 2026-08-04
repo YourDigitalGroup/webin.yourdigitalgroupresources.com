@@ -5,7 +5,7 @@
 // Version handshake — must match BUILD in app.js. If a browser ever loads a
 // cached copy of one file with a fresh copy of the other, app.js detects the
 // mismatch and shows a reload screen instead of half-running.
-const FORMCONFIG_BUILD = "2026-07-31a";
+const FORMCONFIG_BUILD = "2026-08-04a";
 
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
@@ -35,6 +35,10 @@ function pageRows(data) {
 }
 // Content ownership, per page and per content item.
 const OWNER_OPTS = ["Client provides", "44i writes", "Needs work"];
+// Content items (bios, testimonials, legal, pricing) can be explicitly
+// excluded — some sites simply don't have them. "Not needed" satisfies the
+// handoff gate without forcing a fake owner/status (the Aug 4 Peggy incident).
+const ITEM_OWNER_OPTS = [...OWNER_OPTS, "Not needed"];
 // "Needs work" = client has partial material and 44i produces the final copy,
 // so it behaves like 44i-owned everywhere (statuses, drafting, generation).
 const ownerIs44i = (o) => o === "44i writes" || o === "Needs work";
@@ -318,7 +322,8 @@ function handoffBlockers(data, fileCount) {
   for (const r of rows) {
     const owner = String(data[r.ownerFid] ?? "").trim();
     const status = String(data[r.statusFid] ?? "").trim();
-    if (!owner) { out.push(`${r.name} — choose who produces it`); continue; }
+    if (!owner) { out.push(`${r.name} — choose who produces it (or "Not needed")`); continue; }
+    if (owner === "Not needed") continue;  // explicitly excluded from this build
     const doneStatus = ownerIs44i(owner) ? "Final" : "Received";
     if (status !== doneStatus) out.push(`${r.name} — not ${doneStatus.toLowerCase()} yet${status ? ` (${status})` : ""}`);
   }

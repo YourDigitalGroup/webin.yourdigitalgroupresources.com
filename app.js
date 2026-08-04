@@ -1,4 +1,4 @@
-const BUILD = "2026-07-31a";
+const BUILD = "2026-08-04a";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -631,8 +631,10 @@ async function viewForm(id) {
             ${r.sub ? `<span class="c9sub">${h(r.sub)}</span>` : ""}
           </div>
           <div class="c9controls">
-            <div class="c9group"><span class="c9label">Who produces it</span>${seg(r.ownerFid, OWNER_OPTS, owner)}</div>
-            ${owner
+            <div class="c9group"><span class="c9label">Who produces it</span>${seg(r.ownerFid, r.key.startsWith("item:") ? ITEM_OWNER_OPTS : OWNER_OPTS, owner)}</div>
+            ${owner === "Not needed"
+              ? `<span class="c9nudge">Excluded from this build — won't block handoff</span>`
+              : owner
               ? `<div class="c9group"><span class="c9label">Status</span>${seg(r.statusFid, opts, v)}</div>`
               : `<span class="c9nudge">Choose who produces it to set a status</span>`}
             ${writing ? `<button class="btn small c9draftbtn" type="button" data-draftitem="${h(r.key)}">${data[r.draftFid] ? "Redraft" : "Draft with AI"}</button>` : ""}
