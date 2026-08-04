@@ -1,4 +1,4 @@
-const BUILD = "2026-08-04a";
+const BUILD = "2026-08-04b";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -381,6 +381,7 @@ async function viewForm(id) {
   let partnerId = intake.partner_id || "";
   let data = normalizeDrafts(intake.data || {});
   let fileCount = 0;  // client-uploaded assets — part of the handoff gate
+  let blockTargets = [];  // selectors behind the clickable blocker chips
   let saveTimer = null;
   let changed = new Set();
 
@@ -521,14 +522,30 @@ async function viewForm(id) {
     const done = all.length - missing.length;
     $("#reqcount").textContent = `${done} of ${all.length}`;
     $("#reqbar").style.width = `${Math.round((done / Math.max(all.length, 1)) * 100)}%`;
+    const details = handoffBlockerDetails(data, fileCount);
     const gaps = [
-      ...(!partnerId ? ["White-label partner"] : []),
-      ...missing.map((f) => f.label),
-      ...handoffBlockers(data, fileCount),
+      ...(!partnerId ? [{ label: "White-label partner", sel: null }] : []),
+      ...missing.map((f) => ({ label: f.label, sel: `[data-fid="${f.id}"]` })),
+      ...details.map((d) => ({
+        label: d.label,
+        sel: d.kind === "row" ? `[data-checkwrap="${d.target}"]`
+           : d.kind === "field" ? `[data-fid="${d.target}"]`
+           : "#refreshfiles",
+      })),
     ];
-    $("#reqmissing").textContent = gaps.length
-      ? `Blocking handoff: ${gaps.slice(0, 4).join(", ")}${gaps.length > 4 ? ` +${gaps.length - 4} more` : ""}`
+    blockTargets = gaps.map((g) => g.sel);
+    $("#reqmissing").innerHTML = gaps.length
+      ? `Blocking handoff — click to jump to it: ` + gaps.map((g, x) =>
+          `<button type="button" class="blockchip" data-goto="${x}">${h(g.label)}</button>`).join("")
       : "Everything complete — ready for designer handoff";
+    $$("#reqmissing .blockchip").forEach((c) => c.onclick = () => {
+      const sel = blockTargets[+c.dataset.goto];
+      const el = sel && $(sel);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("flashfield");
+      setTimeout(() => el.classList.remove("flashfield"), 2200);
+    });
     renderHandoff(gaps.length);
   }
   function renderHandoff(missingCount) {
@@ -624,12 +641,14 @@ async function viewForm(id) {
       const v = data[r.statusFid];
       const seg = (fid, options, cur) => `<div class="seg" data-fid="${h(fid)}">${options.map((o) =>
         `<button type="button" data-val="${h(o)}" class="${cur === o ? "on" : ""}">${h(o)}</button>`).join("")}</div>`;
+      const flag = rowFlags[r.key];
       return `
-        <div class="c9row" data-checkwrap="${h(r.key)}">
+        <div class="c9row${flag ? " c9blocked" : ""}" data-checkwrap="${h(r.key)}">
           <div class="c9head">
             <span class="c9name">${h(r.name)}${r.tag ? `<span class="badge cond">${h(r.tag)}</span>` : ""}</span>
             ${r.sub ? `<span class="c9sub">${h(r.sub)}</span>` : ""}
           </div>
+          ${flag ? `<div class="c9flag">Blocking handoff — ${h(flag)}</div>` : ""}
           <div class="c9controls">
             <div class="c9group"><span class="c9label">Who produces it</span>${seg(r.ownerFid, r.key.startsWith("item:") ? ITEM_OWNER_OPTS : OWNER_OPTS, owner)}</div>
             ${owner === "Not needed"
@@ -655,6 +674,14 @@ async function viewForm(id) {
         </div>`;
     };
 
+    // Which rows are blocking handoff right now, and what to do about each —
+    // rendered directly on the offending card (the Aug 4 "flag it in the form"
+    // request: the bottom-bar text alone was too easy to miss).
+    const rowFlags = {};
+    for (const dtl of handoffBlockerDetails(data, fileCount)) {
+      if (dtl.kind === "row") rowFlags[dtl.target] = dtl.action;
+    }
+
     // Scoped styles for the section — ride along with the markup so the
     // layout can never desync from a stale styles.css.
     const c9css = `<style>
@@ -672,6 +699,11 @@ async function viewForm(id) {
       .c9draftlabel{font-size:12px;color:var(--ink-faint,#8a8a8a);margin-right:auto}
       .c9draft textarea{width:100%;box-sizing:border-box}
       .c9draft .coach{margin-top:8px}
+      .c9row.c9blocked{border-color:#d9534f;background:#fffafa}
+      .c9flag{margin-top:8px;font-size:12.5px;font-weight:600;color:#b3362f;background:#fdf0ef;border:1px solid #f0cbc8;border-radius:8px;padding:6px 10px}
+      .blockchip{display:inline-block;background:#fdf0ef;border:1px solid #e5b5b1;color:#b3362f;border-radius:999px;padding:2px 10px;font-size:11.5px;cursor:pointer;margin:2px 5px 2px 0;font-family:inherit}
+      .blockchip:hover{background:#fbe2e0}
+      .flashfield{outline:2px solid #d9534f !important;border-radius:8px;transition:outline .2s}
       .c9genwrap{margin:12px 0 16px}
       .c9genhint{display:block;margin-top:7px;font-size:12px;color:var(--ink-faint,#8a8a8a);max-width:640px}
     </style>`;

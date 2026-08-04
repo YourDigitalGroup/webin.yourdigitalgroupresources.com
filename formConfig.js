@@ -5,7 +5,7 @@
 // Version handshake — must match BUILD in app.js. If a browser ever loads a
 // cached copy of one file with a fresh copy of the other, app.js detects the
 // mismatch and shows a reload screen instead of half-running.
-const FORMCONFIG_BUILD = "2026-08-04a";
+const FORMCONFIG_BUILD = "2026-08-04b";
 
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
@@ -307,27 +307,42 @@ function missingRequired(data) {
 //      "Received" for client-provided rows, "Final" for 44i-owned rows,
 //   3. client photos are actually uploaded when the client is providing them.
 // The Edge Function enforces the same rules server-side before creating a card.
-function handoffBlockers(data, fileCount) {
+function handoffBlockerDetails(data, fileCount) {
   const out = [];
   const total = pageCount(data.package);
   for (let n = 1; n <= total; n++) {
-    if (!String(data["page_" + n + "_name"] ?? "").trim()) out.push(`Page ${n} name (Section 08)`);
+    if (!String(data["page_" + n + "_name"] ?? "").trim())
+      out.push({ kind: "field", target: `page_${n}_name`, label: `Page ${n} name (Section 08)`, action: "Name this page" });
   }
   const rows = [
-    ...pageRows(data).map((pg) => ({ name: pg.name + " page", ownerFid: `page_owner_${pg.n}`, statusFid: `page_status_${pg.n}` })),
+    ...pageRows(data).map((pg) => ({ key: `page:${pg.n}`, name: pg.name + " page", ownerFid: `page_owner_${pg.n}`, statusFid: `page_status_${pg.n}` })),
     ...CONTENT_ITEMS.filter((c) => !c.cond || c.cond(data.package, data)).map((c) => ({
-      name: c.label, ownerFid: `content_owner_${c.label}`, statusFid: `content_${c.label}`,
+      key: `item:${c.label}`, name: c.label, ownerFid: `content_owner_${c.label}`, statusFid: `content_${c.label}`,
     })),
   ];
   for (const r of rows) {
     const owner = String(data[r.ownerFid] ?? "").trim();
     const status = String(data[r.statusFid] ?? "").trim();
-    if (!owner) { out.push(`${r.name} — choose who produces it (or "Not needed")`); continue; }
+    if (!owner) {
+      out.push({ kind: "row", target: r.key, label: `${r.name} — choose who produces it (or "Not needed")`,
+        action: r.key.startsWith("item:") ? `Choose who produces it — or "Not needed" if this site won't have it` : "Choose who produces it" });
+      continue;
+    }
     if (owner === "Not needed") continue;  // explicitly excluded from this build
     const doneStatus = ownerIs44i(owner) ? "Final" : "Received";
-    if (status !== doneStatus) out.push(`${r.name} — not ${doneStatus.toLowerCase()} yet${status ? ` (${status})` : ""}`);
+    if (status !== doneStatus) {
+      out.push({ kind: "row", target: r.key, label: `${r.name} — not ${doneStatus.toLowerCase()} yet${status ? ` (${status})` : ""}`,
+        action: doneStatus === "Final"
+          ? (status === "Drafted" ? "Review the drafted copy below, then click Approve" : "Draft the copy (Draft with AI), review it, then click Approve")
+          : "Set status to Received once the client's content is in hand" });
+    }
   }
   const clientPhotos = data.photo_source === "Client providing" || data.photo_source === "Mix of both";
-  if (clientPhotos && !(fileCount > 0)) out.push("Client photos — none uploaded yet");
+  if (clientPhotos && !(fileCount > 0)) {
+    out.push({ kind: "photos", target: "", label: "Client photos — none uploaded yet", action: "Upload the client's photos in the Assets section" });
+  }
   return out;
+}
+function handoffBlockers(data, fileCount) {
+  return handoffBlockerDetails(data, fileCount).map((d) => d.label);
 }
