@@ -5,7 +5,7 @@
 // Version handshake — must match BUILD in app.js. If a browser ever loads a
 // cached copy of one file with a fresh copy of the other, app.js detects the
 // mismatch and shows a reload screen instead of half-running.
-const FORMCONFIG_BUILD = "2026-08-13b";
+const FORMCONFIG_BUILD = "2026-08-13c";
 
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
@@ -134,15 +134,18 @@ const SECTIONS = [
     ],
   },
   {
-    num: "04", title: "Goals and what success looks like",
-    sub: "Discovery that feeds the strategist's page planning.",
+    num: "04", title: "Goals, keywords, and what success looks like",
+    sub: "Discovery that feeds page planning, SEO targeting, and the AI copy drafts.",
+    landing: true,
     fields: [
       { id: "primary_goal", label: "Primary goal of the website", type: "segmented", req: true,
         options: ["Lead generation", "Booking / appointments", "E-commerce", "Informational", "Other"] },
       { id: "top_action", label: "The #1 action you want a visitor to take", type: "text", req: true,
         hint: "Drives the primary call-to-action sitewide." },
       { id: "top_services", label: "Top services or products to feature, ranked", type: "textarea", req: true,
-        hint: "The headliners, not the full catalog." },
+        hint: "Write these the way a customer would SEARCH for them — \"land surveying,\" not internal division names. One per line, most important first. These become page names and SEO targets." },
+      { id: "priority_keywords", label: "Priority keywords and search phrases", type: "textarea", rec: true,
+        hint: "Exact phrases customers type into Google, including question phrasings. Ask the client: \"What would YOU search to find a business like yours?\"" },
       { id: "success_6mo", label: "How will you know the site is working in 6 months?", type: "textarea", rec: true },
     ],
   },
@@ -307,12 +310,32 @@ function missingRequired(data) {
 //      "Received" for client-provided rows, "Final" for 44i-owned rows,
 //   3. client photos are actually uploaded when the client is providing them.
 // The Edge Function enforces the same rules server-side before creating a card.
+// Targeted landing pages: every package includes five (service + geo pairs),
+// each pair = one dedicated SEO landing page. The "+" adds sold extras.
+const LP_BASE = 5;
+function lpCount(data) {
+  return Math.max(LP_BASE, +(data.lp_count ?? LP_BASE) || LP_BASE);
+}
+
 function handoffBlockerDetails(data, fileCount) {
   const out = [];
   const total = pageCount(data.package);
   for (let n = 1; n <= total; n++) {
     if (!String(data["page_" + n + "_name"] ?? "").trim())
       out.push({ kind: "field", target: `page_${n}_name`, label: `Page ${n} name (Section 08)`, action: "Name this page" });
+  }
+  for (let n = 1; n <= lpCount(data); n++) {
+    const svc = String(data["lp_service_" + n] ?? "").trim();
+    const geo = String(data["lp_geo_" + n] ?? "").trim();
+    if (n <= LP_BASE) {
+      // Five landing pages come with every package — both halves required.
+      if (!svc) out.push({ kind: "field", target: `lp_service_${n}`, label: `Landing page ${n} — product/service`, action: "Name the product or service" });
+      if (!geo) out.push({ kind: "field", target: `lp_geo_${n}`, label: `Landing page ${n} — geo-location`, action: "Name the target location" });
+    } else if (svc || geo) {
+      // Extra rows are optional, but a half-filled pair is a mistake.
+      if (!svc) out.push({ kind: "field", target: `lp_service_${n}`, label: `Landing page ${n} — product/service missing`, action: "Complete the pair or clear the row" });
+      if (!geo) out.push({ kind: "field", target: `lp_geo_${n}`, label: `Landing page ${n} — geo-location missing`, action: "Complete the pair or clear the row" });
+    }
   }
   const rows = [
     ...pageRows(data).map((pg) => ({ key: `page:${pg.n}`, name: pg.name + " page", ownerFid: `page_owner_${pg.n}`, statusFid: `page_status_${pg.n}` })),

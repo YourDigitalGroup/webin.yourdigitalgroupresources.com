@@ -1,4 +1,4 @@
-const BUILD = "2026-08-13b";
+const BUILD = "2026-08-13c";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -449,6 +449,7 @@ async function viewForm(id) {
         ${sec.checklist ? `<div id="contentzone"></div>` : ""}
         ${sec.faqs ? `<div id="faqzone"></div>` : ""}
         ${sec.checklist ? "" : `<div class="grid2">${sec.fields.map(fieldHtml).join("")}</div>`}
+        ${sec.landing ? `<div id="landingzone"></div>` : ""}
       </div>${sec.checklist ? `
       <div class="card" id="chatbotcard" style="display:none">
         <p class="secnum">AI CHATBOT</p>
@@ -577,6 +578,7 @@ async function viewForm(id) {
         gapsOpen = true;
         updateReqBar();
         renderContent();
+        renderLanding();
         const first = blockTargets.find(Boolean);
         const el = first && $(first);
         if (el) {
@@ -642,6 +644,40 @@ async function viewForm(id) {
     idle(b, "Draft suggested copy");
     alert("Copy drafting is taking too long — check that the ANTHROPIC_API_KEY secret is set and the latest function is deployed, then try again.");
   };
+
+  function renderLanding() {
+    const zone = $("#landingzone"); if (!zone) return;
+    const total = lpCount(data);
+    const missing = new Set(
+      submitAttempted
+        ? handoffBlockerDetails(data, fileCount).filter((d) => d.kind === "field" && d.target.startsWith("lp_")).map((d) => d.target)
+        : [],
+    );
+    const cell = (fid, ph) =>
+      `<input type="text" data-fid="${fid}" value="${h(data[fid] ?? "")}" placeholder="${ph}" ${missing.has(fid) ? 'style="border-color:#d9534f"' : ""} />`;
+    let rowsHtml = "";
+    for (let n = 1; n <= total; n++) {
+      rowsHtml += cell(`lp_service_${n}`, n === 1 ? "Land surveying" : "") + cell(`lp_geo_${n}`, n === 1 ? "Heber Springs, AR" : "");
+    }
+    zone.innerHTML = `
+      <div style="margin-top:16px;border-top:1px dashed var(--line,#e5e3df);padding-top:14px">
+        <label style="font-size:13.5px;font-weight:600">Targeted landing pages<span class="badge req">REQ</span></label>
+        <span class="hint" style="display:block;margin:2px 0 10px">Every package includes five — each row pairs one product/service with one location and becomes its own SEO landing page (e.g. "Land surveying in Heber Springs"). Use + only if the client bought extras.</span>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 12px">
+          <span class="c9label">Products and Services</span>
+          <span class="c9label">Geo-Location</span>
+          ${rowsHtml}
+        </div>
+        <button class="btn small" type="button" id="lpadd" style="margin-top:10px">+ Add landing page row</button>
+      </div>`;
+    $("#lpadd").onclick = () => {
+      data.lp_count = total + 1;
+      changed.add("landing pages");
+      markDirty();
+      renderLanding();
+      $(`[data-fid="lp_service_${total + 1}"]`)?.focus();
+    };
+  }
 
   function renderContent() {
     const zone = $("#contentzone"); if (!zone) return;
@@ -1122,6 +1158,7 @@ async function viewForm(id) {
   /* --- go --- */
   if ($("#faqzone")) renderFaqs();
   if ($("#contentzone")) renderContent();
+  if ($("#landingzone")) renderLanding();
   if ($("#chatbotzone")) renderChatbot();
   if ($("#uploader")) loadFiles();
   applyConditions();
