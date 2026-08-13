@@ -5,7 +5,7 @@
 // Version handshake — must match BUILD in app.js. If a browser ever loads a
 // cached copy of one file with a fresh copy of the other, app.js detects the
 // mismatch and shows a reload screen instead of half-running.
-const FORMCONFIG_BUILD = "2026-08-13c";
+const FORMCONFIG_BUILD = "2026-08-13d";
 
 const PACKAGES = [
   { value: "onetime-1", label: "One-time · 1-page" },
@@ -145,7 +145,7 @@ const SECTIONS = [
       { id: "top_services", label: "Top services or products to feature, ranked", type: "textarea", req: true,
         hint: "Write these the way a customer would SEARCH for them — \"land surveying,\" not internal division names. One per line, most important first. These become page names and SEO targets." },
       { id: "priority_keywords", label: "Priority keywords and search phrases", type: "textarea", rec: true,
-        hint: "Exact phrases customers type into Google, including question phrasings. Ask the client: \"What would YOU search to find a business like yours?\"" },
+        hint: "One phrase per line — the exact wording customers type into Google, including question phrasings. Ask the client: \"What would YOU search to find a business like yours?\" These feed page copy AND the FAQ generator." },
       { id: "success_6mo", label: "How will you know the site is working in 6 months?", type: "textarea", rec: true },
     ],
   },

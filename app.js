@@ -1,4 +1,4 @@
-const BUILD = "2026-08-13c";
+const BUILD = "2026-08-13d";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -933,7 +933,10 @@ async function viewForm(id) {
       <div class="faqcard" style="background:var(--field-tint);border-color:var(--line)">
         <label style="font-size:13px;font-weight:600">AI FAQ copywriter</label>
         <p class="hint" style="font-size:12px;color:var(--ink-soft);margin:2px 0 6px">
-          List topics or keywords (one per line) — the system writes SEO/AEO-tuned FAQs from them plus this intake's business details. Everything stays editable below.</p>
+          Keywords flow in automatically from Section 04 (top services, priority keywords, landing page areas) — no need to repeat them here.</p>
+        <label style="font-size:12.5px;font-weight:600">Anything specific the FAQs should cover? <span class="badge" style="background:var(--field-tint);border:1px solid var(--line)">optional</span></label>
+        <p class="hint" style="font-size:12px;color:var(--ink-soft);margin:2px 0 6px">
+          Extra angles the client mentioned — financing, process, guarantees. One per line. Leave blank to generate from Section 04 alone.</p>
         <div class="fld"><textarea rows="3" data-fid="faq_topics"
           placeholder="emergency service&#10;financing options&#10;service area / how far do you travel">${h(data.faq_topics ?? "")}</textarea></div>
         <button class="btn small" id="faqgen" type="button">Generate FAQs</button>
