@@ -1,4 +1,4 @@
-const BUILD = "2026-08-04b";
+const BUILD = "2026-08-13b";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -382,6 +382,8 @@ async function viewForm(id) {
   let data = normalizeDrafts(intake.data || {});
   let fileCount = 0;  // client-uploaded assets — part of the handoff gate
   let blockTargets = [];  // selectors behind the clickable blocker chips
+  let submitAttempted = false;  // red flagging only after a blocked Submit click
+  let gapsOpen = false;         // "show what's left" quiet panel toggle
   let saveTimer = null;
   let changed = new Set();
 
@@ -534,10 +536,22 @@ async function viewForm(id) {
       })),
     ];
     blockTargets = gaps.map((g) => g.sel);
-    $("#reqmissing").innerHTML = gaps.length
-      ? `Blocking handoff — click to jump to it: ` + gaps.map((g, x) =>
-          `<button type="button" class="blockchip" data-goto="${x}">${h(g.label)}</button>`).join("")
-      : "Everything complete — ready for designer handoff";
+    const rm = $("#reqmissing");
+    if (!gaps.length) {
+      rm.textContent = "Everything complete — ready for designer handoff";
+    } else if (!submitAttempted) {
+      // Quiet mode: a half-finished intake is normal, not an error. One line,
+      // details on demand — red treatment waits for a blocked Submit click.
+      rm.innerHTML = `${gaps.length} item${gaps.length === 1 ? "" : "s"} left before handoff · ` +
+        `<button type="button" class="linklike" id="togglegaps">${gapsOpen ? "hide list" : "show what's left"}</button>` +
+        (gapsOpen ? `<div style="margin-top:6px">` + gaps.map((g, x) =>
+          `<button type="button" class="blockchip quiet" data-goto="${x}">${h(g.label)}</button>`).join("") + `</div>` : "");
+      const tg = $("#togglegaps");
+      if (tg) tg.onclick = () => { gapsOpen = !gapsOpen; updateReqBar(); };
+    } else {
+      rm.innerHTML = `Blocking handoff — click to jump to it: ` + gaps.map((g, x) =>
+        `<button type="button" class="blockchip" data-goto="${x}">${h(g.label)}</button>`).join("");
+    }
     $$("#reqmissing .blockchip").forEach((c) => c.onclick = () => {
       const sel = blockTargets[+c.dataset.goto];
       const el = sel && $(sel);
@@ -554,9 +568,24 @@ async function viewForm(id) {
       zone.innerHTML = `<span class="pill designer_ready">Designer-ready — edits notify the Trello card</span>`;
       return;
     }
-    zone.innerHTML = `<button class="btn primary" id="handoff" ${missingCount ? "disabled" : ""}>Submit for handoff</button>`;
+    zone.innerHTML = `<button class="btn primary" id="handoff">Submit for handoff</button>`;
     const b = $("#handoff");
     if (b) b.onclick = async () => {
+      if (blockTargets.length) {
+        // Blocked: don't submit — light up exactly what's outstanding.
+        submitAttempted = true;
+        gapsOpen = true;
+        updateReqBar();
+        renderContent();
+        const first = blockTargets.find(Boolean);
+        const el = first && $(first);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("flashfield");
+          setTimeout(() => el.classList.remove("flashfield"), 2200);
+        }
+        return;
+      }
       b.disabled = true; b.textContent = "Handing off…";
       data.build_checklist = buildChecklist(data);
       changed.add("build checklist");
@@ -655,6 +684,8 @@ async function viewForm(id) {
               ? `<span class="c9nudge">Excluded from this build — won't block handoff</span>`
               : owner
               ? `<div class="c9group"><span class="c9label">Status</span>${seg(r.statusFid, opts, v)}</div>`
+              : flag
+              ? ``
               : `<span class="c9nudge">Choose who produces it to set a status</span>`}
             ${writing ? `<button class="btn small c9draftbtn" type="button" data-draftitem="${h(r.key)}">${data[r.draftFid] ? "Redraft" : "Draft with AI"}</button>` : ""}
           </div>
@@ -678,8 +709,10 @@ async function viewForm(id) {
     // rendered directly on the offending card (the Aug 4 "flag it in the form"
     // request: the bottom-bar text alone was too easy to miss).
     const rowFlags = {};
-    for (const dtl of handoffBlockerDetails(data, fileCount)) {
-      if (dtl.kind === "row") rowFlags[dtl.target] = dtl.action;
+    if (submitAttempted) {
+      for (const dtl of handoffBlockerDetails(data, fileCount)) {
+        if (dtl.kind === "row") rowFlags[dtl.target] = dtl.action;
+      }
     }
 
     // Scoped styles for the section — ride along with the markup so the
@@ -703,6 +736,9 @@ async function viewForm(id) {
       .c9flag{margin-top:8px;font-size:12.5px;font-weight:600;color:#b3362f;background:#fdf0ef;border:1px solid #f0cbc8;border-radius:8px;padding:6px 10px}
       .blockchip{display:inline-block;background:#fdf0ef;border:1px solid #e5b5b1;color:#b3362f;border-radius:999px;padding:2px 10px;font-size:11.5px;cursor:pointer;margin:2px 5px 2px 0;font-family:inherit}
       .blockchip:hover{background:#fbe2e0}
+      .blockchip.quiet{background:#f5f4f2;border-color:#ddd9d3;color:#6b6b6b}
+      .blockchip.quiet:hover{background:#eceae6}
+      .linklike{background:none;border:none;padding:0;color:#3b6ea5;font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit}
       .flashfield{outline:2px solid #d9534f !important;border-radius:8px;transition:outline .2s}
       .c9genwrap{margin:12px 0 16px}
       .c9genhint{display:block;margin-top:7px;font-size:12px;color:var(--ink-faint,#8a8a8a);max-width:640px}
