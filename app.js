@@ -1,4 +1,4 @@
-const BUILD = "2026-08-13d";
+const BUILD = "2026-08-21a";
 console.log("intake portal build", BUILD);
 
 // Deploy-skew guard: formConfig.js declares FORMCONFIG_BUILD and it must match
@@ -492,11 +492,20 @@ async function viewForm(id) {
   async function save() {
     $("#savestate").textContent = "Saving…";
     const missing = missingRequired(data).length;
-    await db.from("intakes").update({
+    const { error } = await db.from("intakes").update({
       data, req_missing: missing,
       client_name: (data.company || "").trim() || intake.client_name,
       package: data.package || null,
     }).eq("id", id);
+    if (error) {
+      // A failed write must never read as "All changes saved" — the row still
+      // holds the old data, so a handoff would go out without these edits.
+      $("#savestate").textContent = "Save failed — retrying…";
+      $("#savestate").classList.add("dirty");
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, 4000);
+      return false;
+    }
     if (intake.status === "designer_ready" && changed.size) {
       // The database webhook sees this save and comments on the Trello card.
       const summary = [...changed].slice(0, 4).join(", ");
@@ -505,6 +514,7 @@ async function viewForm(id) {
     changed.clear();
     $("#savestate").textContent = "All changes saved";
     $("#savestate").classList.remove("dirty");
+    return true;
   }
 
   function applyConditions() {
@@ -590,24 +600,34 @@ async function viewForm(id) {
       }
       b.disabled = true; b.textContent = "Handing off…";
       data.build_checklist = buildChecklist(data);
+      // An error left by a previous attempt rides inside `data`, so saving
+      // would resurrect it and the poll below would replay it as this run's
+      // verdict (the Aug 21 ghost-alert). Clear it before anything persists.
+      delete data.trello_error;
       changed.add("build checklist");
-      clearTimeout(saveTimer); await save();
+      clearTimeout(saveTimer);
+      if (!(await save())) {
+        b.disabled = false; b.textContent = "Submit for handoff";
+        alert("Couldn't save the intake — the handoff was not submitted.\n\nCheck your connection (and that you're still signed in), then try again.");
+        return;
+      }
       await logActivity(id, "Submitted for designer handoff");
       // Flipping the status triggers the database webhook, which creates the
       // Trello card server-side. Poll briefly for the card link to confirm.
       await db.from("intakes").update({ status: "designer_ready" }).eq("id", id);
-      let cardUrl = null;
+      let cardUrl = null, cardError = null;
       for (let i = 0; i < 8; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const { data: row } = await db.from("intakes").select("trello_card_url, data").eq("id", id).single();
-        if (row?.data?.trello_error) {
-          alert("Handoff saved, but the Trello card failed:\n\n" + row.data.trello_error + "\n\nFix the issue, then edit any field on the intake to retry automatically.");
-          break;
-        }
-        if (row?.trello_card_url) { cardUrl = row.trello_card_url; break; }
+        // Card first: success and failure are mutually exclusive per run, and
+        // any trello_error seen now is fresh — this run cleared the old one.
+        if (row?.trello_card_url) { cardUrl = row.trello_card_url; cardError = null; break; }
+        if (row?.data?.trello_error) { cardError = row.data.trello_error; break; }
         b.textContent = "Creating Trello card…";
       }
-      if (cardUrl === null && !$(".modal-overlay")) { /* error already alerted or still pending */ }
+      if (cardError) {
+        alert("Handoff saved, but the Trello card failed:\n\n" + cardError + "\n\nFix the issue, then edit any field on the intake to retry automatically.");
+      }
       location.hash = `#/intake/${id}`;
     };
   }
